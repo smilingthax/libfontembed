@@ -4,4 +4,5 @@ test_analyze
 test_pdf
 test_ps
 ttfread
+font_get
 libfontembed.a
