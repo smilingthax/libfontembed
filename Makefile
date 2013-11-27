@@ -3,9 +3,12 @@ LIBOBJ=sfnt.o embed.o embed_sfnt.o dynstring.o fontfile.o
 EXEC=ttfread test_analyze test_pdf test_ps font_get
 LIB=libfontembed.a
 
-CFLAGS=-O3 -funroll-all-loops -finline-functions -Wall -g  -I bundle -g -O2
+CFLAGS=-O3 -funroll-all-loops -finline-functions -Wall -g
 CPPFLAGS=-Wall -g -DTESTFONT="\"/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf\""
 LDFLAGS=
+
+ CPPFLAGS+=-DWOFF_SUPPORT
+ LDFLAGS+=-lz
 
 OBJECTS=$(patsubst %.c,$(PREFIX)%$(SUFFIX).o,\
         $(patsubst %.cpp,$(PREFIX)%$(SUFFIX).o,\

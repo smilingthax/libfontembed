@@ -8,17 +8,31 @@ typedef struct {
   unsigned int checkSum;
   unsigned int offset;
   unsigned int length;
+  unsigned int compLength; // for WOFF
 } OTF_DIRENT;
 
 typedef struct {
+  unsigned int length;
+  unsigned int origLength;
+  unsigned short majorVersion,minorVersion;
+  unsigned int metaOffset;
+  unsigned int metaLength;
+  unsigned int metaOrigLength;
+  unsigned int privOffset;
+  unsigned int privLength;
+} OTF_WOFF_HEADER;
+
+typedef struct {
   FILE *f;
+  int flags;
   unsigned int numTTC,useTTC;
+
   unsigned int version;
+  OTF_WOFF_HEADER woff;
 
   unsigned short numTables;
   OTF_DIRENT *tables;
 
-  int flags;
   unsigned short unitsPerEm;
   unsigned short indexToLocFormat; // 0=short, 1=long
   unsigned short numGlyphs;
@@ -31,9 +45,12 @@ typedef struct {
 
   // single glyf buffer, allocated large enough by otf_load_more()
   char *gly;
-  OTF_DIRENT *glyfTable;
+  OTF_DIRENT *glyfTable; // direct access
+  char *glyf; // even more direct access...
 
 } OTF_FILE;
+#define OTF_F_CACHE_GLYF   0x00001
+#define OTF_F_WOFF         0x08000
 #define OTF_F_FMT_CFF      0x10000
 #define OTF_F_DO_CHECKSUM  0x40000
 

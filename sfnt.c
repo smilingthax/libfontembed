@@ -6,6 +6,11 @@
 #include <assert.h>
 #include "sfnt_int.h"
 
+#ifdef WOFF_SUPPORT
+  #include <zlib.h>
+#endif
+
+
 // TODO?
 // get_SHORT(head+48) // fontDirectionHint
 /* reqd. Tables: cmap, head, hhea, hmtx, maxp, name, OS/2, post
@@ -79,27 +84,74 @@ static OTF_FILE *otf_new(FILE *f) // {{{
 }
 // }}}
 
-// will alloc, if >buf ==NULL, returns >buf, or NULL on error
-// NOTE: you probably want otf_get_table()
+static int otf_read_raw(FILE *f,char *buf,long pos,int length) // {{{
+{
+  const int res=fseek(f,pos,SEEK_SET);
+  if (res==-1) {
+    fprintf(stderr,"Seek failed: %s\n", strerror(errno));
+    return -1;
+  }
+  return fread(buf,1,length,f);
+}
+// }}}
+
+static int otf_read_compressed_raw(FILE *f,char *buf,long pos,unsigned long length,int compLength) // {{{
+{
+#ifdef WOFF_SUPPORT
+  char *tmp=malloc(sizeof(char)*compLength);
+  if (!tmp) {
+    fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
+    return -1;
+  }
+  const int res=otf_read_raw(f,tmp,pos,compLength);
+  if (res!=compLength) {
+    fprintf(stderr,"Short read\n");
+    free(tmp);
+    return -1;
+  }
+  if (uncompress((unsigned char *)buf,&length,(unsigned char *)tmp,compLength)!=Z_OK) {
+    fprintf(stderr,"Decompression failed\n");
+    free(tmp);
+    return -1;
+  }
+  free(tmp);
+  return length;
+#else
+  fprintf(stderr,"Cannot read compressed table, WOFF_SUPPORT has not been compiled in\n");
+  return -1;
+#endif
+}
+// }}}
+
+// uncompressed read, buf!=NULL, w/o padding
 static char *otf_read(OTF_FILE *otf,char *buf,long pos,int length) // {{{
+{
+  assert(length>0);
+  const int res=otf_read_raw(otf->f,buf,pos,length);
+  if (res!=length) {
+    fprintf(stderr,"Short read\n");
+    return NULL;
+  }
+  return buf;
+}
+// }}}
+
+// NOTE: you probably want otf_get_table()
+// will alloc if >buf ==NULL; otherwise buf must be big enough to hold uncompressed length + padding
+// returns >buf, or NULL on error
+static char *otf_read_table(OTF_FILE *otf,char *buf,const OTF_DIRENT *table) // {{{
 {
   char *ours=NULL;
 
-  if (length==0) {
+  if (table->length==0) {
     return buf;
-  } else if (length<0) {
+  } else if ( (table->compLength<0)||(table->length<table->compLength) ) {
     assert(0);
     return NULL;
   }
 
-  int res=fseek(otf->f,pos,SEEK_SET);
-  if (res==-1) {
-    fprintf(stderr,"Seek failed: %s\n", strerror(errno));
-    return NULL;
-  }
-
   // (+3)&~3 for checksum...
-  const int pad_len=(length+3)&~3;
+  const int pad_len=(table->length+3)&~3;
   if (!buf) {
     ours=buf=malloc(sizeof(char)*pad_len);
     if (!buf) {
@@ -108,18 +160,23 @@ static char *otf_read(OTF_FILE *otf,char *buf,long pos,int length) // {{{
     }
   }
 
-  res=fread(buf,1,pad_len,otf->f);
-  if (res!=pad_len) {
-    if (res==length) { // file size not multiple of 4, pad with zero
-      memset(buf+res,0,pad_len-length);
-    } else {
-      fprintf(stderr,"Short read\n");
-      free(ours);
-      return NULL;
-    }
+  int res;
+  if (table->compLength<table->length) {
+    res=otf_read_compressed_raw(otf->f,buf,table->offset,pad_len,table->compLength);
+  } else {
+    res=otf_read_raw(otf->f,buf,table->offset,pad_len);
   }
-
-  return buf;
+  if (res==pad_len) {
+    return buf;
+  } else if (res==table->length) {
+    // (file/uncompressed) length is not a multiple of 4, fill missing padding with zero
+    memset(buf+res,0,pad_len-res);
+    return buf;
+  } else if (res!=-1) {
+    fprintf(stderr,"Short read\n");
+  }
+  free(ours);
+  return NULL;
 }
 // }}}
 
@@ -142,67 +199,163 @@ static int otf_get_ttc_start(OTF_FILE *otf,int use_ttc) // {{{
 }
 // }}}
 
-OTF_FILE *otf_do_load(OTF_FILE *otf,int pos) // {{{
+static int otf_load_header(OTF_FILE *otf,int pos) // {{{
+{
+  char buf[12];
+  if (!otf_read(otf,buf,pos,12)) {
+    fprintf(stderr,"Not a ttf font\n");
+    return -1;
+  }
+  otf->version=get_ULONG(buf);
+  otf->numTables=get_USHORT(buf+4);
+  // don't need the other fields...
+  pos+=12;
+  return pos;
+}
+// }}}
+
+static int otf_load_ttc(OTF_FILE *otf,int use_ttc) // {{{
+{
+  char buf[12];
+  if (!otf_read(otf,buf,0,12)) {
+    fprintf(stderr,"Not a TTC font\n");
+    return -1;
+  }
+
+  const unsigned int ttc_version=get_ULONG(buf+4);
+  if ( (ttc_version!=0x00010000)&&(ttc_version!=0x00020000) ) {
+    fprintf(stderr,"Unsupported TTC version\n");
+    return -1;
+  }
+  otf->numTTC=get_ULONG(buf+8);
+  otf->useTTC=use_ttc;
+
+  const int pos=otf_get_ttc_start(otf,use_ttc);
+  if (pos<0) {
+    return -1;
+  }
+  return otf_load_header(otf,pos);
+}
+// }}}
+
+static int otf_load_woff_header(OTF_FILE *otf) // {{{  returns file position  or -1
+{
+  char buf[44];
+  if (!otf_read(otf,buf,0,44)) {
+    fprintf(stderr,"Not a wOFF font\n");
+    return -1;
+  }
+  if (get_USHORT(buf+14)!=0) {
+    fprintf(stderr,"Unsupported wOFF font\n");
+    return -1;
+  }
+  // buf[0] alread processed: wOFF
+  otf->version=get_ULONG(buf+4);
+  otf->woff.length=get_ULONG(buf+8);
+  otf->numTables=get_USHORT(buf+12);
+  otf->woff.origLength=get_ULONG(buf+16);
+  otf->woff.majorVersion=get_USHORT(buf+20);
+  otf->woff.minorVersion=get_USHORT(buf+22);
+  otf->woff.metaOffset=get_ULONG(buf+24);
+  otf->woff.metaLength=get_ULONG(buf+28);
+  otf->woff.metaOrigLength=get_ULONG(buf+32);
+  otf->woff.privOffset=get_ULONG(buf+36);
+  otf->woff.privLength=get_ULONG(buf+40);
+  otf->flags|=OTF_F_WOFF;
+  otf->flags|=OTF_F_CACHE_GLYF;
+  return 44;
+}
+// }}}
+
+static int otf_load_directory(OTF_FILE *otf,int pos) // {{{
 {
   int iA;
   char buf[16];
 
-  // {{{ read offset table
-  if (otf_read(otf,buf,pos,12)) {
-    otf->version=get_ULONG(buf);
-    if (otf->version==0x00010000) { // 1.0 truetype
-    } else if (otf->version==OTF_TAG('O','T','T','O')) { // OTF(CFF)
-      otf->flags|=OTF_F_FMT_CFF;
-    } else if (otf->version==OTF_TAG('t','r','u','e')) { // (old mac)
-    } else if (otf->version==OTF_TAG('t','y','p','1')) { // sfnt wrapped type1
-      // TODO: unsupported
-    } else {
-      otf_close(otf);
-      otf=NULL;
+  for (iA=0;iA<otf->numTables;iA++) {
+    if (!otf_read(otf,buf,pos,16)) {
+      return -1;
     }
-    pos+=12;
+    otf->tables[iA].tag=get_ULONG(buf);
+    otf->tables[iA].checkSum=get_ULONG(buf+4);
+    otf->tables[iA].offset=get_ULONG(buf+8);
+    otf->tables[iA].length=get_ULONG(buf+12);
+    otf->tables[iA].compLength=otf->tables[iA].length;
+    pos+=16;
+  }
+  return pos;
+}
+// }}}
+
+static int otf_load_woff_directory(OTF_FILE *otf,int pos) // {{{
+{
+  int iA;
+  char buf[20];
+
+  for (iA=0;iA<otf->numTables;iA++) {
+    if (!otf_read(otf,buf,pos,20)) {
+      return -1;
+    }
+    otf->tables[iA].tag=get_ULONG(buf);
+    otf->tables[iA].offset=get_ULONG(buf+4);
+    otf->tables[iA].compLength=get_ULONG(buf+8);
+    otf->tables[iA].length=get_ULONG(buf+12);
+    otf->tables[iA].checkSum=get_ULONG(buf+16);
+    pos+=20;
+  }
+  return pos;
+}
+// }}}
+
+  // WOFF TODO?  global checksum
+static int otf_do_load(OTF_FILE *otf,int pos) // {{{
+{
+  int iA;
+
+  // {{{ check version
+  if (otf->version==0x00010000) { // 1.0 truetype
+  } else if (otf->version==OTF_TAG('O','T','T','O')) { // OTF(CFF)
+    otf->flags|=OTF_F_FMT_CFF;
+  } else if (otf->version==OTF_TAG('t','r','u','e')) { // (old mac)
+  } else if (otf->version==OTF_TAG('t','y','p','1')) { // sfnt wrapped type1
+    fprintf(stderr,"Unsupported ttf font (typ1)\n");
+    return -1;
   } else {
-    otf_close(otf);
-    otf=NULL;
+    fprintf(stderr,"Not a ttf font (unknown version)\n");
+    return -1;
   }
-  if (!otf) {
-    fprintf(stderr,"Not a ttf font\n");
-    return NULL;
-  }
-  otf->numTables=get_USHORT(buf+4);
   // }}}
 
   // {{{ read directory
   otf->tables=malloc(sizeof(OTF_DIRENT)*otf->numTables);
   if (!otf->tables) {
     fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
-    otf_close(otf);
-    return NULL;
+    return -1;
   }
+  if (otf->flags&OTF_F_WOFF) {
+    pos=otf_load_woff_directory(otf,pos);
+  } else {
+    pos=otf_load_directory(otf,pos);
+  }
+  if (pos==-1) {
+    return -1;
+  }
+
+  // check that opentype and truetype is not mixed
   for (iA=0;iA<otf->numTables;iA++) {
-    if (!otf_read(otf,buf,pos,16)) {
-      otf_close(otf);
-      return NULL;
-    }
-    otf->tables[iA].tag=get_ULONG(buf);
-    otf->tables[iA].checkSum=get_ULONG(buf+4);
-    otf->tables[iA].offset=get_ULONG(buf+8);
-    otf->tables[iA].length=get_ULONG(buf+12);
     if ( (otf->tables[iA].tag==OTF_TAG('C','F','F',' '))&&
-         ((otf->flags&OTF_F_FMT_CFF)==0) ) {
+         (!is_CFF(otf)) ) {
       fprintf(stderr,"Wrong magic\n");
-      otf_close(otf);
-      return NULL;
+      return -1;
     } else if ( (otf->tables[iA].tag==OTF_TAG('g','l','y','p'))&&
-                (otf->flags&OTF_F_FMT_CFF) ) {
+                (is_CFF(otf)) ) {
       fprintf(stderr,"Wrong magic\n");
-      otf_close(otf);
-      return NULL;
+      return -1;
     }
-    pos+=16;
   }
   // }}}
 
+//  otf->flags|=OTF_F_CACHE_GLYF; // i.e. always?
 //  otf->flags|=OTF_F_DO_CHECKSUM;
   // {{{ check head table
   int len=0;
@@ -212,17 +365,16 @@ OTF_FILE *otf_do_load(OTF_FILE *otf,int pos) // {{{
        (len!=54)||
        (get_ULONG(head+12)!=0x5F0F3CF5)|| // magic
        (get_SHORT(head+52)!=0x0000) ) {   // glyphDataFormat
-    fprintf(stderr,"Unsupported OTF font / head table \n");
+    fprintf(stderr,"Unsupported OTF font / head table\n");
     free(head);
-    otf_close(otf);
-    return NULL;
+    return -1;
   }
   // }}}
   otf->unitsPerEm=get_USHORT(head+18);
   otf->indexToLocFormat=get_SHORT(head+50);
 
-  // {{{ checksum whole file
-  if (otf->flags&OTF_F_DO_CHECKSUM) {
+  // {{{ checksum whole file -- not for WOFF: checksum has to be calculated on UNCOMPRESSED content
+  if ( (otf->flags&OTF_F_DO_CHECKSUM)&&((otf->flags&OTF_F_WOFF)==0) ) {
     unsigned int csum=0;
     char tmp[1024];
     rewind(otf->f);
@@ -236,8 +388,7 @@ OTF_FILE *otf_do_load(OTF_FILE *otf,int pos) // {{{
     if (csum!=0xb1b0afba) {
       fprintf(stderr,"Wrong global checksum\n");
       free(head);
-      otf_close(otf);
-      return NULL;
+      return -1;
     }
   }
   // }}}
@@ -247,33 +398,22 @@ OTF_FILE *otf_do_load(OTF_FILE *otf,int pos) // {{{
   char *maxp=otf_get_table(otf,OTF_TAG('m','a','x','p'),&len);
   if (maxp) {
     const unsigned int maxp_version=get_ULONG(maxp);
-    if ( (maxp_version==0x00005000)&&(len==6) ) { // version 0.5
+    if ( (maxp_version==0x00005000)&&(len==6)&&
+         (is_CFF(otf)) ) { // version 0.5, only CFF
       otf->numGlyphs=get_USHORT(maxp+4);
-      if ( (otf->flags&OTF_F_FMT_CFF)==0) { // only CFF
-        free(maxp);
-        maxp=NULL;
-      }
-    } else if ( (maxp_version==0x00010000)&&(len==32) ) { // version 1.0
+    } else if ( (maxp_version==0x00010000)&&(len==32)&&
+                (!is_CFF(otf)) ) { // version 1.0, only TTF
       otf->numGlyphs=get_USHORT(maxp+4);
-      if (otf->flags&OTF_F_FMT_CFF) { // only TTF
-        free(maxp);
-        maxp=NULL;
-      }
     } else {
+      fprintf(stderr,"Unsupported OTF font / maxp table \n");
       free(maxp);
-      maxp=NULL;
+      return -1;
     }
-  }
-  if (!maxp) {
-    fprintf(stderr,"Unsupported OTF font / maxp table \n");
     free(maxp);
-    otf_close(otf);
-    return NULL;
   }
-  free(maxp);
   // }}}
 
-  return otf;
+  return pos;
 }
 // }}}
 
@@ -312,34 +452,32 @@ OTF_FILE *otf_load(const char *file) // {{{
     return NULL;
   }
 
-  char buf[12];
-  int pos=0;
-  // {{{ check for TTC
-  if (otf_read(otf,buf,pos,12)) {
-    const unsigned int version=get_ULONG(buf);
-    if (version==OTF_TAG('t','t','c','f')) {
-      const unsigned int ttc_version=get_ULONG(buf+4);
-      if ( (ttc_version!=0x00010000)&&(ttc_version!=0x00020000) ) {
-        fprintf(stderr,"Unsupported TTC version\n");
-        otf_close(otf);
-        return NULL;
-      }
-      otf->numTTC=get_ULONG(buf+8);
-      otf->useTTC=use_ttc;
-      pos=otf_get_ttc_start(otf,use_ttc);
-      if (pos==-1) {
-        otf_close(otf);
-        return NULL;
-      }
-    }
-  } else {
-    fprintf(stderr,"Not a ttf font\n");
+  char buf[4];
+  if (!otf_read(otf,buf,0,4)) {
+    fprintf(stderr,"Not a ttf font / too short\n");
     otf_close(otf);
     return NULL;
   }
-  // }}}
+  const unsigned int version=get_ULONG(buf);
 
-  return otf_do_load(otf,pos);
+  int pos;
+  if (version==OTF_TAG('w','O','F','F')) { // WOFF does not currently support TTC
+    pos=otf_load_woff_header(otf);
+  } else if (version==OTF_TAG('t','t','c','f')) { // TTC
+    pos=otf_load_ttc(otf,use_ttc);
+  } else {
+    pos=otf_load_header(otf,0);
+  }
+
+  if (pos!=-1) {
+    otf_do_load(otf,pos);
+  }
+
+  if (pos==-1) {
+    otf_close(otf);
+    return NULL;
+  }
+  return otf;
 }
 // }}}
 
@@ -347,7 +485,11 @@ void otf_close(OTF_FILE *otf) // {{{
 {
   assert(otf);
   if (otf) {
-    free(otf->gly);
+    if (otf->flags&OTF_F_CACHE_GLYF) {
+      free(otf->glyf);
+    } else {
+      free(otf->gly);
+    }
     free(otf->cmap);
     free(otf->name);
     free(otf->hmtx);
@@ -376,7 +518,7 @@ int otf_find_table(OTF_FILE *otf,unsigned int tag) // {{{  - table_index  or -1 
 {
 #if 0
   // binary search would require raw table
-  int pos=0;
+  int pos=0;  // BUG: not for TTC/WOFF
   char buf[12];
   if (!otf_read(otf,buf,pos,12)) {
     return -1;
@@ -431,7 +573,7 @@ char *otf_get_table(OTF_FILE *otf,unsigned int tag,int *ret_len) // {{{
   }
   const OTF_DIRENT *table=otf->tables+idx;
 
-  char *ret=otf_read(otf,NULL,table->offset,table->length);
+  char *ret=otf_read_table(otf,NULL,table);
   if (!ret) {
     return NULL;
   }
@@ -453,12 +595,12 @@ char *otf_get_table(OTF_FILE *otf,unsigned int tag,int *ret_len) // {{{
 
 int otf_load_glyf(OTF_FILE *otf) // {{{  - 0 on success
 {
-  assert((otf->flags&OTF_F_FMT_CFF)==0); // not for CFF
+  assert(!is_CFF(otf)); // not for CFF
   int iA,len;
   // {{{ find glyf table
   iA=otf_find_table(otf,OTF_TAG('g','l','y','f'));
   if (iA==-1) {
-    fprintf(stderr,"Unsupported OTF font / glyf table \n");
+    fprintf(stderr,"Unsupported OTF font / glyf table\n");
     return -1;
   }
   otf->glyfTable=otf->tables+iA;
@@ -469,7 +611,8 @@ int otf_load_glyf(OTF_FILE *otf) // {{{  - 0 on success
   if ( (!loca)||
        (otf->indexToLocFormat>=2)||
        (((len+3)&~3)!=((((otf->numGlyphs+1)*(otf->indexToLocFormat+1)*2)+3)&~3)) ) {
-    fprintf(stderr,"Unsupported OTF font / loca table \n");
+    fprintf(stderr,"Unsupported OTF font / loca table\n");
+    free(loca);
     return -1;
   }
   if (otf->glyphOffsets) {
@@ -492,10 +635,29 @@ int otf_load_glyf(OTF_FILE *otf) // {{{  - 0 on success
   }
   free(loca);
   if (otf->glyphOffsets[otf->numGlyphs]>otf->glyfTable->length) {
-    fprintf(stderr,"Bad loca table \n");
+    fprintf(stderr,"Bad loca table\n");
     return -1;
   }
   // }}}
+
+  if (otf->glyf) {
+    free(otf->glyf);
+    assert(0);
+    otf->glyf=NULL;
+  }
+  if (otf->flags&OTF_F_CACHE_GLYF) {
+    otf->glyf=otf_get_table(otf,OTF_TAG('g','l','y','f'),&len);
+    if (!otf->glyf) {
+      return -1;
+    }
+
+    if (otf->gly) {
+      free(otf->gly);
+      assert(0);
+      otf->gly=NULL;
+    }
+    return 0;
+  }
 
   // {{{ allocate otf->gly slot
   int maxGlyfLen=0;  // no single glyf takes more space
@@ -529,7 +691,7 @@ int otf_load_more(OTF_FILE *otf) // {{{  - 0 on success   => hhea,hmtx,name,[gly
   int iA;
 
   int len;
-  if ((otf->flags&OTF_F_FMT_CFF)==0) { // not for CFF
+  if (!is_CFF(otf)) { // not for CFF
     if (otf_load_glyf(otf)==-1) {
       return -1;
     }
@@ -541,7 +703,8 @@ int otf_load_more(OTF_FILE *otf) // {{{  - 0 on success   => hhea,hmtx,name,[gly
        (get_ULONG(hhea)!=0x00010000)|| // version
        (len!=36)||
        (get_SHORT(hhea+32)!=0) ) { // metric format
-    fprintf(stderr,"Unsupported OTF font / hhea table \n");
+    fprintf(stderr,"Unsupported OTF font / hhea table\n");
+    free(hhea);
     return -1;
   }
   otf->numberOfHMetrics=get_USHORT(hhea+34);
@@ -552,7 +715,8 @@ int otf_load_more(OTF_FILE *otf) // {{{  - 0 on success   => hhea,hmtx,name,[gly
   char *hmtx=otf_get_table(otf,OTF_TAG('h','m','t','x'),&len);
   if ( (!hmtx)||
        (len!=otf->numberOfHMetrics*2+otf->numGlyphs*2) ) {
-    fprintf(stderr,"Unsupported OTF font / hmtx table \n");
+    fprintf(stderr,"Unsupported OTF font / hmtx table\n");
+    free(hmtx);
     return -1;
   }
   if (otf->hmtx) {
@@ -569,6 +733,7 @@ int otf_load_more(OTF_FILE *otf) // {{{  - 0 on success   => hhea,hmtx,name,[gly
        (len<get_USHORT(name+2)*12+6)||
        (len<=get_USHORT(name+4)) ) {
     fprintf(stderr,"Unsupported OTF font / name table \n");
+    free(name);
     return -1;
   }
   // check bounds
@@ -603,6 +768,7 @@ int otf_load_cmap(OTF_FILE *otf) // {{{  - 0 on success
        (get_USHORT(cmap)!=0x0000)|| // version
        (len<get_USHORT(cmap+2)*8+4) ) {
     fprintf(stderr,"Unsupported OTF font / cmap table \n");
+    free(cmap);
     assert(0);
     return -1;
   }
@@ -615,7 +781,7 @@ int otf_load_cmap(OTF_FILE *otf) // {{{  - 0 on success
     if ( (ndata<cmap+4+8*numTables)||
          (offset>=len)||
          (offset+get_USHORT(ndata+2)>len) ) {
-      fprintf(stderr,"Bad cmap table \n");
+      fprintf(stderr,"Bad cmap table\n");
       free(cmap);
       assert(0);
       return -1;
@@ -706,14 +872,14 @@ const char *otf_get_name(OTF_FILE *otf,int platformID,int encodingID,int languag
 int otf_get_glyph(OTF_FILE *otf,unsigned short gid) // {{{ result in >otf->gly, returns length, -1 on error
 {
   assert(otf);
-  assert((otf->flags&OTF_F_FMT_CFF)==0); // not for CFF
+  assert(!is_CFF(otf)); // not for CFF
 
   if (gid>=otf->numGlyphs) {
     return -1;
   }
 
-  // ensure >glyphOffsets and >gly is there
-  if ( (!otf->gly)||(!otf->glyphOffsets) ) {
+  // ensure >glyphOffsets is there
+  if (!otf->glyphOffsets) {
     if (otf_load_more(otf)!=0) {
       assert(0);
       return -1;
@@ -726,8 +892,19 @@ int otf_get_glyph(OTF_FILE *otf,unsigned short gid) // {{{ result in >otf->gly, 
   }
 
   assert(otf->glyfTable->length>=otf->glyphOffsets[gid+1]);
-  if (!otf_read(otf,otf->gly,
-                otf->glyfTable->offset+otf->glyphOffsets[gid],len)) {
+  if (otf->glyf) { // i.e. OTF_F_CACHE_GLYF
+    otf->gly=otf->glyf+otf->glyphOffsets[gid];
+  } else if (otf->gly) {
+    if (otf->flags&OTF_F_WOFF) {
+      fprintf(stderr,"OTF_F_CACHE_GLYF is needed to read glyphs from wOFF files\n");
+      return -1;
+    }
+    if (!otf_read_raw(otf->f,otf->gly,
+                  otf->glyfTable->offset+otf->glyphOffsets[gid],len)) {
+      return -1;
+    }
+  } else {
+    assert(0);
     return -1;
   }
 
@@ -739,7 +916,7 @@ unsigned short otf_from_unicode(OTF_FILE *otf,int unicode) // {{{ 0 = missing
 {
   assert(otf);
   assert( (unicode>=0)&&(unicode<65536) );
-//  assert((otf->flags&OTF_F_FMT_CFF)==0); // not for CFF, other method!
+//  assert(!is_CFF(otf)); // not for CFF, other method!
 
   // ensure >cmap and >unimap is there
   if (!otf->cmap) {
@@ -798,7 +975,7 @@ int otf_action_copy(void *param,int table_no,OUTPUT_FN output,void *context) // 
 
 // TODO? copy_block(otf->f,table->offset,(table->length+3)&~3,output,context);
 // problem: PS currently depends on single-output.  also checksum not possible
-  char *data=otf_read(otf,NULL,table->offset,table->length);
+  char *data=otf_read_table(otf,NULL,table);
   if (!data) {
     return -1;
   }
@@ -823,7 +1000,7 @@ int otf_action_copy_head(void *param,int csum,OUTPUT_FN output,void *context) //
     return table->length;
   }
 
-  char *data=otf_read(otf,NULL,table->offset,table->length);
+  char *data=otf_read_table(otf,NULL,table);
   if (!data) {
     return -1;
   }
@@ -891,6 +1068,7 @@ static const struct { int prio; unsigned int tag; } otf_tagorder_win[]={ // {{{
   {10,OTF_TAG('p','r','e','p')}};
 // }}}
 
+// TODO? support writing WOFF?
 int otf_write_sfnt(struct _OTF_WRITE *otw,unsigned int version,int numTables,OUTPUT_FN output,void *context) // {{{
 {
   int iA;

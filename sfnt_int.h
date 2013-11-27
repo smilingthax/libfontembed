@@ -69,6 +69,12 @@ static inline int get_width_fast(OTF_FILE *otf,int gid) // {{{
 }
 // }}}
 
+static inline int is_CFF(OTF_FILE *otf) // {{{
+{
+  return !!(otf->flags&OTF_F_FMT_CFF);
+}
+// }}}
+
 int otf_load_glyf(OTF_FILE *otf); //  - 0 on success
 int otf_load_more(OTF_FILE *otf); //  - 0 on success
 
