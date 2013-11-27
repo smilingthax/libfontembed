@@ -1,0 +1,7 @@
+*.d
+*.o
+test_analyze
+test_pdf
+test_ps
+ttfread
+libfontembed.a
