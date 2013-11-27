@@ -1,9 +1,12 @@
 #include "embed.h"
-#include "config.h"
 #include "sfnt.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#ifndef TESTFONT
+  #include "config.h"
+#endif
 
 static void example_outfn(const char *buf,int len,void *context) // {{{
 {

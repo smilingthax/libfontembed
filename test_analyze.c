@@ -1,11 +1,14 @@
 #include "sfnt.h"
 #include "sfnt_int.h"
 #include "embed.h"
-#include "config.h"
 #include "embed_sfnt_int.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#ifndef TESTFONT
+  #include "config.h"
+#endif
 
 enum { WEIGHT_THIN=100,
        WEIGHT_EXTRALIGHT=200, WEIGHT_ULTRALIGHT=200,

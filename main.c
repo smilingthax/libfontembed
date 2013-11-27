@@ -4,7 +4,9 @@
 #include <assert.h>
 
 #include "embed.h"
-#include "config.h"
+#ifndef TESTFONT
+  #include "config.h"
+#endif
 
 #if 0
 enum { TTF_OTF, TYPE1 } inputFile;
