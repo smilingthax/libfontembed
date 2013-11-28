@@ -405,7 +405,7 @@ static int otf_do_load(OTF_FILE *otf,int pos) // {{{
                 (!is_CFF(otf)) ) { // version 1.0, only TTF
       otf->numGlyphs=get_USHORT(maxp+4);
     } else {
-      fprintf(stderr,"Unsupported OTF font / maxp table \n");
+      fprintf(stderr,"Unsupported OTF font / maxp table\n");
       free(maxp);
       return -1;
     }
@@ -470,7 +470,7 @@ OTF_FILE *otf_load(const char *file) // {{{
   }
 
   if (pos!=-1) {
-    otf_do_load(otf,pos);
+    pos=otf_do_load(otf,pos);
   }
 
   if (pos==-1) {
