@@ -98,7 +98,7 @@ void show_name(OTF_FILE *otf) // {{{
 }
 // }}}
 
-void show_cmap(OTF_FILE *otf) // {{{
+void show_cmap(OTF_FILE *otf,int full) // {{{
 {
   assert(otf);
   int iA,len=0;
@@ -122,6 +122,42 @@ void show_cmap(OTF_FILE *otf) // {{{
            get_USHORT(nrec),get_USHORT(nrec+2),
            get_ULONG(nrec+4),
            get_USHORT(ndata),get_USHORT(ndata+2),get_USHORT(ndata+4));
+
+    if (full) {
+      int iB;
+      const int format=get_USHORT(ndata);
+      if (format==4) {
+        const int segCountX2=get_USHORT(ndata+6);
+        for (iB=0;iB<segCountX2;iB+=2) {
+          const int start=get_USHORT(ndata+16+segCountX2+iB);
+          const int delta=get_USHORT(ndata+16+2*segCountX2+iB);
+          const int offset=get_USHORT(ndata+16+3*segCountX2+iB);
+          printf("    [%x, %x]: delta: %d, offset: %d  ",
+                 start,
+                 get_USHORT(ndata+14+iB), // end
+                 delta,offset);
+          if (offset) {
+            printf("(glyphIndex offset: ndata + %d + 2*(c - start))",
+                   16+3*segCountX2+iB+offset);
+          } else {
+            printf("(gid of start: %d)",
+                   (start+delta)%65536);
+          }
+          putchar('\n');
+          // either  offset!=0: *( ndata+16+3*segCountX2+iB + offset + 2*(X-start) )
+          // or: just add delta to X (mod 65536)
+        }
+        // ... glyphIndexArray from  ndata+16+4*segCountX2  up to  get_USHORT(ndata+2))
+      } else if (format==6) {
+        const int len=get_USHORT(ndata+8);
+        printf("    subrange start char: %x, length: %d, glyph indices:\n",
+               get_USHORT(ndata+6),len);
+        for (iB=0;iB<len;iB++) {
+          printf("%d ",get_USHORT(ndata+10+2*iB));
+        }
+        putchar('\n');
+      }
+    }
   }
   free(cmap);
 }
@@ -222,7 +258,7 @@ int main(int argc,char **argv)
 
   show_name(otf);
 
-  show_cmap(otf);
+  show_cmap(otf,1);
   // printf("%d %d\n",otf_from_unicode(otf,'A'),0);
 
   if (!(otf->flags&OTF_F_FMT_CFF)) {
