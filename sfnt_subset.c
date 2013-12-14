@@ -25,10 +25,10 @@ int otf_ttc_extract(OTF_FILE *otf,OUTPUT_FN output,void *context) // {{{
   for (iA=0;iA<otf->numTables;iA++) {
     otw[iA].tag=otf->tables[iA].tag;
     otw[iA].action=otf_action_copy;
-    otw[iA].param=otf;
-    otw[iA].length=iA;
+    otw[iA].args.copy.otf=otf;
+    otw[iA].args.copy.table_no=iA;
   }
-  iA=otf_write_sfnt(otw,otf->version,otf->numTables,output,context);
+  iA=otf_write_sfnt(otw,otf->version,otf->numTables,NULL,output,context);
   free(otw);
 
   return iA;
@@ -42,7 +42,7 @@ int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE *otw) // {{{
   for (iA=0,iB=0;(iA<otf->numTables)&&(otw[iB].tag);) {
     if (otf->tables[iA].tag==otw[iB].tag) {
       if (otw[iB].action==otf_action_copy) {
-        otw[iB].length=iA; // original table location found.
+        otw[iB].args.copy.table_no=iA; // original table location found.
       }
       if (iB!=numTables) { // >, actually
         memmove(otw+numTables,otw+iB,sizeof(struct _OTF_WRITE));
@@ -151,8 +151,8 @@ int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{
   // second pass: calculate new glyf and loca
   int locaSize=(otf->numGlyphs+1)*(otf->indexToLocFormat+1)*2;
 
-  char *new_loca=malloc(locaSize);
-  char *new_glyf=malloc(glyfSize);
+  char *new_loca=malloc(otf_padded(locaSize));
+  char *new_glyf=malloc(otf_padded(glyfSize));
   if ( (!new_loca)||(!new_glyf) ) {
     fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
     assert(0);
@@ -194,23 +194,23 @@ int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{
   // determine new tables.
   struct _OTF_WRITE otw[]={ // sorted
     // TODO: cmap only required in non-CID context   or always in CFF
-      {OTF_TAG('c','m','a','p'),otf_action_copy,otf,},
-      {OTF_TAG('c','v','t',' '),otf_action_copy,otf,},
-      {OTF_TAG('f','p','g','m'),otf_action_copy,otf,},
-      {OTF_TAG('g','l','y','f'),otf_action_replace,new_glyf,glyfSize},
-      {OTF_TAG('h','e','a','d'),otf_action_copy,otf,}, // _copy_head
-      {OTF_TAG('h','h','e','a'),otf_action_copy,otf,},
-      {OTF_TAG('h','m','t','x'),otf_action_copy,otf,},
-      {OTF_TAG('l','o','c','a'),otf_action_replace,new_loca,locaSize},
-      {OTF_TAG('m','a','x','p'),otf_action_copy,otf,},
-      {OTF_TAG('n','a','m','e'),otf_action_copy,otf,},
-      {OTF_TAG('p','r','e','p'),otf_action_copy,otf,},
+      {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('c','v','t',' '),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('f','p','g','m'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('g','l','y','f'),otf_action_replace,.args.replace={new_glyf,glyfSize}},
+      {OTF_TAG('h','e','a','d'),otf_action_copy,.args.copy={otf,}}, // _copy_head
+      {OTF_TAG('h','h','e','a'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('h','m','t','x'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('l','o','c','a'),otf_action_replace,.args.replace={new_loca,locaSize}},
+      {OTF_TAG('m','a','x','p'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('n','a','m','e'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('p','r','e','p'),otf_action_copy,.args.copy={otf,}},
       // vhea vmtx (never used in PDF, but possible in PS>=3011)
-      {0,0,0,0}};
+      {0,0,}};
 
   // and write them
   int numTables=otf_intersect_tables(otf,otw);
-  int ret=otf_write_sfnt(otw,otf->version,numTables,output,context);
+  int ret=otf_write_sfnt(otw,otf->version,numTables,NULL,output,context);
 
   free(new_loca);
   free(new_glyf);
@@ -231,9 +231,9 @@ int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) /
 
   // determine new tables.
   struct _OTF_WRITE otw[]={
-      {OTF_TAG('C','F','F',' '),otf_action_copy,otf,},
+      {OTF_TAG('C','F','F',' '),otf_action_copy,.args.copy={otf,}},
 //      {OTF_TAG('C','F','F',' '),otf_action_replace,new_glyf,glyfSize},
-      {OTF_TAG('c','m','a','p'),otf_action_copy,otf,},
+      {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
 #if 0 // not actually needed!
       {OTF_TAG('c','v','t',' '),otf_action_copy,otf,},
       {OTF_TAG('f','p','g','m'),otf_action_copy,otf,},
@@ -244,11 +244,11 @@ int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) /
       {OTF_TAG('n','a','m','e'),otf_action_copy,otf,},
       {OTF_TAG('p','r','e','p'),otf_action_copy,otf,},
 #endif
-      {0,0,0,0}};
+      {0,0,}};
 
   // and write them
   int numTables=otf_intersect_tables(otf,otw);
-  int ret=otf_write_sfnt(otw,otf->version,numTables,output,context);
+  int ret=otf_write_sfnt(otw,otf->version,numTables,NULL,output,context);
 
 //  free(new_cff);
   return ret;

@@ -607,25 +607,25 @@ int emb_otf_ps(OTF_FILE *otf,unsigned short *encoding,int len,unsigned short *to
   for (iA=0;iA<otf->numTables;iA++) {
     otw[iA].tag=otf->tables[iA].tag;
     otw[iA].action=otf_action_copy;
-    otw[iA].param=otf;
-    otw[iA].length=iA;
+    otw[iA].args.copy.otf=otf;
+    otw[iA].args.copy.table_no=iA;
   }
   int numTables=otf->numTables;
 #else
   struct _OTF_WRITE otw[]={ // sorted
-      {OTF_TAG('c','m','a','p'),otf_action_copy,otf,},
-      {OTF_TAG('c','v','t',' '),otf_action_copy,otf,},
-      {OTF_TAG('f','p','g','m'),otf_action_copy,otf,},
-      {OTF_TAG('g','l','y','f'),otf_action_copy,otf,},
-      {OTF_TAG('h','e','a','d'),otf_action_copy,otf,},
-      {OTF_TAG('h','h','e','a'),otf_action_copy,otf,},
-      {OTF_TAG('h','m','t','x'),otf_action_copy,otf,},
-      {OTF_TAG('l','o','c','a'),otf_action_copy,otf,},
-      {OTF_TAG('m','a','x','p'),otf_action_copy,otf,},
-      {OTF_TAG('n','a','m','e'),otf_action_copy,otf,},
-      {OTF_TAG('p','r','e','p'),otf_action_copy,otf,},
+      {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('c','v','t',' '),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('f','p','g','m'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('g','l','y','f'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('h','e','a','d'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('h','h','e','a'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('h','m','t','x'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('l','o','c','a'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('m','a','x','p'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('n','a','m','e'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('p','r','e','p'),otf_action_copy,.args.copy={otf,}},
       // vhea vmtx (never used in PDF, but possible in PS>=3011)
-      {0,0,0,0}};
+      {0,0,}};
   int numTables=otf_intersect_tables(otf,otw);
 #endif
 
@@ -634,9 +634,9 @@ int emb_otf_ps(OTF_FILE *otf,unsigned short *encoding,int len,unsigned short *to
   of.ctx=context;
   of.len=0;
   if (binary) {
-    iA=otf_write_sfnt(otw,otf->version,numTables,outfilter_binary_ps,&of);
+    iA=otf_write_sfnt(otw,otf->version,numTables,NULL,outfilter_binary_ps,&of);
   } else {
-    iA=otf_write_sfnt(otw,otf->version,numTables,outfilter_ascii_ps,&of);
+    iA=otf_write_sfnt(otw,otf->version,numTables,NULL,outfilter_ascii_ps,&of);
   }
   free(otfree);
   if (iA==-1) {

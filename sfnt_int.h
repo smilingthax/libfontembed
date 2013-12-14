@@ -48,7 +48,13 @@ static inline void set_ULONG(char *buf,unsigned int val) // {{{
   buf[2]=(val>>8)&0xff;
   buf[3]=val&0xff;
 }
-// }}}
+//  }}}
+
+static inline int otf_padded(int length) // {{{
+{
+  return (length+3)&~3;
+}
+//  }}}
 
 static inline unsigned int otf_checksum(const char *buf, unsigned int len) // {{{
 {
@@ -80,20 +86,38 @@ int otf_load_more(OTF_FILE *otf); //  - 0 on success
 
 int otf_find_table(OTF_FILE *otf,unsigned int tag); // - table_index  or -1 on error
 
-int otf_action_copy(void *param,int csum,OUTPUT_FN output,void *context);
-int otf_action_replace(void *param,int csum,OUTPUT_FN output,void *context);
-
-// Note: don't use this directly. otf_write_sfnt will internally replace otf_action_copy for head with this
-int otf_action_copy_head(void *param,int csum,OUTPUT_FN output,void *context);
+struct _OTF_WRITE;
+struct _OTF_ACTION {
+  char *data;
+  OTF_DIRENT table;
+  int (*load)(struct _OTF_WRITE *self); // 0 on success
+  void (*free)(struct _OTF_WRITE *self);
+};
 
 struct _OTF_WRITE {
   unsigned long tag;
-  int (*action)(void *param,int length,OUTPUT_FN output,void *context); // -1 on error, num_bytes_written on success; if >output==NULL return checksum in (unsigned int *)context  instead.
-  void *param;
-  int length;
+  void (*action)(struct _OTF_WRITE *self);
+  union {
+    struct {
+      OTF_FILE *otf;
+      int table_no;
+    } copy;
+    struct {
+      char *data; // will be modified: padding=0, and to fix head csum
+      int length; // data has to have enough extra space for padding!
+    } replace;
+  } args;
+  struct _OTF_ACTION info;
 };
 
-int otf_write_sfnt(struct _OTF_WRITE *otw,unsigned int version,int numTables,OUTPUT_FN output,void *context);
+void otf_action_copy(struct _OTF_WRITE *self);
+void otf_action_replace(struct _OTF_WRITE *self);
+
+// will change otw!
+// Note: woffHdr is for internal use by otf_write_woff().
+int otf_write_sfnt(struct _OTF_WRITE *otw,unsigned int version,int numTables,OTF_WOFF_HEADER *woffHdr,OUTPUT_FN output,void *context);
+
+int otf_write_woff(struct _OTF_WRITE *otw,unsigned int version,int numTables,const char *metaData,unsigned int metaLength,const char *privData,unsigned int privLength,OUTPUT_FN output,void *context);
 
 /** from sfnt_subset.c: **/
 

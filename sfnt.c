@@ -109,7 +109,7 @@ static int otf_read_compressed_raw(FILE *f,char *buf,long pos,unsigned long leng
     free(tmp);
     return -1;
   }
-  if (uncompress((unsigned char *)buf,&length,(unsigned char *)tmp,compLength)!=Z_OK) {
+  if (uncompress((unsigned char *)buf,&length,(const unsigned char *)tmp,compLength)!=Z_OK) {
     fprintf(stderr,"Decompression failed\n");
     free(tmp);
     return -1;
@@ -150,8 +150,7 @@ static char *otf_read_table(OTF_FILE *otf,char *buf,const OTF_DIRENT *table) // 
     return NULL;
   }
 
-  // (+3)&~3 for checksum...
-  const int pad_len=(table->length+3)&~3;
+  const int pad_len=otf_padded(table->length); // for checksum...
   if (!buf) {
     ours=buf=malloc(sizeof(char)*pad_len);
     if (!buf) {
@@ -610,7 +609,7 @@ int otf_load_glyf(OTF_FILE *otf) // {{{  - 0 on success
   char *loca=otf_get_table(otf,OTF_TAG('l','o','c','a'),&len);
   if ( (!loca)||
        (otf->indexToLocFormat>=2)||
-       (((len+3)&~3)!=((((otf->numGlyphs+1)*(otf->indexToLocFormat+1)*2)+3)&~3)) ) {
+       (otf_padded(len)!=otf_padded((otf->numGlyphs+1)*(otf->indexToLocFormat+1)*2)) ) {
     fprintf(stderr,"Unsupported OTF font / loca table\n");
     free(loca);
     return -1;
@@ -963,79 +962,137 @@ unsigned short otf_from_unicode(OTF_FILE *otf,int unicode) // {{{ 0 = missing
 // }}}
 
 /** output stuff **/
-int otf_action_copy(void *param,int table_no,OUTPUT_FN output,void *context) // {{{
+static char *otf_write_compressed_raw(const char *in,unsigned int length,unsigned long *compLength) // {{{
 {
-  OTF_FILE *otf=param;
-  const OTF_DIRENT *table=otf->tables+table_no;
-
-  if (!output) { // get checksum and unpadded length
-    *(unsigned int *)context=table->checkSum;
-    return table->length;
+  assert(compLength);
+#ifdef WOFF_SUPPORT
+  *compLength=compressBound(length); // known to be > otf_padded(length)
+  char *tmp=malloc(sizeof(char)*(*compLength));
+  if (!tmp) {
+    fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
+    *compLength=-1;
+    return NULL;
   }
+  if (compress2((unsigned char *)tmp,compLength,(const unsigned char *)in,length,9)!=Z_OK) {
+    fprintf(stderr,"Compression failed\n");
+    free(tmp);
+    *compLength=-1;
+    return NULL;
+  }
+  if (*compLength<length) {
+    return tmp; // compressed
+  }
+  free(tmp);
+#endif
+  *compLength=length; // uncompressed
+  return NULL;
+}
+// }}}
 
-// TODO? copy_block(otf->f,table->offset,(table->length+3)&~3,output,context);
+static void action_free(struct _OTF_WRITE *self) // {{{
+{
+  assert(self);
+  free(self->info.data);
+  self->info.data=NULL;
+}
+// }}}
+
+static void action_nop(struct _OTF_WRITE *self) // {{{
+{
+}
+// }}}
+
+// TODO? copy_block(otf->f,table->offset,otf_padded(table->length),output,context);
 // problem: PS currently depends on single-output.  also checksum not possible
-  char *data=otf_read_table(otf,NULL,table);
-  if (!data) {
-    return -1;
-  }
-  int ret=(table->length+3)&~3;
-  (*output)(data,ret,context);
-  free(data);
-  return ret; // padded length
-}
-// }}}
-
-// TODO? >modified time-stamp?
-// Note: don't use this directly. otf_write_sfnt will internally replace otf_action_copy for head with this
-int otf_action_copy_head(void *param,int csum,OUTPUT_FN output,void *context) // {{{
+static int action_copy_load(struct _OTF_WRITE *self) // {{{
 {
-  OTF_FILE *otf=param;
-  const int table_no=otf_find_table(otf,OTF_TAG('h','e','a','d')); // we can't have csum AND table_no ... never mind!
-  assert(table_no!=-1);
-  const OTF_DIRENT *table=otf->tables+table_no;
-
-  if (!output) { // get checksum and unpadded length
-    *(unsigned int *)context=table->checkSum;
-    return table->length;
-  }
+  OTF_FILE *otf=self->args.copy.otf;
+  const OTF_DIRENT *table=otf->tables+self->args.copy.table_no;
 
   char *data=otf_read_table(otf,NULL,table);
   if (!data) {
     return -1;
   }
-  set_ULONG(data+8,0xb1b0afba-csum); // head. fix global checksum
-  int ret=(table->length+3)&~3;
-  (*output)(data,ret,context);
-  free(data);
-  return ret; // padded length
+
+  assert(!self->info.data);
+  self->info.data=data;
+  return 0;
 }
 // }}}
 
-int otf_action_replace(void *param,int length,OUTPUT_FN output,void *context) // {{{
+static int action_hlp_compress(struct _OTF_WRITE *self) // {{{
 {
-  char *data=param;
-  char pad[4]={0,0,0,0};
-
-  int ret=(length+3)&~3;
-  if (!output) { // get checksum and unpadded length
-    if (ret!=length) {
-      unsigned int csum=otf_checksum(data,ret-4);
-      memcpy(pad,data+ret-4,ret-length);
-      csum+=get_ULONG(pad);
-      *(unsigned int *)context=csum;
-    } else {
-      *(unsigned int *)context=otf_checksum(data,length);
+  unsigned long compLength;
+  char *comp=otf_write_compressed_raw(self->info.data,self->info.table.length,&compLength);
+  if (comp) { // compressed
+    (*self->info.free)(self);
+    if (otf_padded(compLength)>compLength) { // clear padding bytes
+      memset(comp+compLength,0,otf_padded(compLength)-compLength);
     }
-    return length;
-  }
+    self->info.data=comp;
+    self->info.table.compLength=compLength;
+    self->info.free=action_free;
+  } else if (compLength==-1) { // error
+    (*self->info.free)(self);
+    return -1;
+  } // else: leave uncompressed
+  return 0;
+}
+// }}}
 
-  (*output)(data,length,context);
-  if (ret!=length) {
-    (*output)(pad,ret-length,context);
+static int action_load_data(struct _OTF_WRITE *self) // {{{
+{
+  if (!self->info.data) {
+    assert(self->info.load);
+    if (!self->info.load) {
+      return -1;
+    }
+    const int res=(*self->info.load)(self);
+    if (res<0) {
+      return -1;
+    }
   }
+  return 0;
+}
+// }}}
 
-  return ret; // padded length
+void otf_action_copy(struct _OTF_WRITE *self) // {{{
+{
+  OTF_FILE *otf=self->args.copy.otf;
+  const OTF_DIRENT *table=otf->tables+self->args.copy.table_no;
+
+  // get checksum and unpadded length
+  self->info.table.tag=self->tag;
+  self->info.table.checkSum=table->checkSum;
+  self->info.table.offset=0; // later
+  self->info.table.length=table->length; // unpadded
+  self->info.table.compLength=table->length; // uncompressed
+
+  self->info.data=NULL;
+  self->info.load=action_copy_load;
+  self->info.free=action_free;
+}
+// }}}
+
+void otf_action_replace(struct _OTF_WRITE *self) // {{{
+{
+  char *data=self->args.replace.data;
+  int length=self->args.replace.length;
+
+  // get checksum and unpadded length
+  self->info.table.tag=self->tag;
+  self->info.table.checkSum=otf_checksum(data,otf_padded(length));
+  self->info.table.offset=0; // later
+  self->info.table.length=length; // unpadded
+  self->info.table.compLength=length; // uncompressed
+
+  assert(data);
+  if (otf_padded(length)>length) { // clear padding bytes
+    memset(data+length,0,otf_padded(length)-length);
+  }
+  self->info.data=data;
+  self->info.load=NULL;
+  self->info.free=action_nop;
 }
 // }}}
 
@@ -1068,102 +1125,259 @@ static const struct { int prio; unsigned int tag; } otf_tagorder_win[]={ // {{{
   {10,OTF_TAG('p','r','e','p')}};
 // }}}
 
-// TODO? support writing WOFF?
-int otf_write_sfnt(struct _OTF_WRITE *otw,unsigned int version,int numTables,OUTPUT_FN output,void *context) // {{{
+static void otf_tagorder_sort(const struct _OTF_WRITE *otw,int *order,int numTables) // {{{
+{
+  int priolist[NUM_PRIO]={0,};
+
+  // reverse intersection of both sorted arrays
+  int iA=numTables-1,iB=sizeof(otf_tagorder_win)/sizeof(otf_tagorder_win[0])-1;
+  int ret=numTables-1;
+  while ( (iA>=0)&&(iB>=0) ) {
+    if (otw[iA].tag==otf_tagorder_win[iB].tag) {
+      priolist[otf_tagorder_win[iB--].prio]=1+iA--;
+    } else if (otw[iA].tag>otf_tagorder_win[iB].tag) { // no order known: put unchanged at end of result
+      order[ret--]=iA--;
+    } else { // <
+      iB--;
+    }
+  }
+  for (iA=NUM_PRIO-1;iA>=0;iA--) { // pick the matched tables up in sorted order (bucketsort principle)
+    if (priolist[iA]) {
+      order[ret--]=priolist[iA]-1;
+    }
+  }
+}
+// }}}
+
+static int otf_write_header(char *out,unsigned int version,int numTables) // {{{
+{
+  // the header
+  set_ULONG(out,version);
+  set_USHORT(out+4,numTables);
+  int a,b,c;
+  otf_bsearch_params(numTables,16,&a,&b,&c);
+  set_USHORT(out+6,a);
+  set_USHORT(out+8,b);
+  set_USHORT(out+10,c);
+  return 12;
+}
+// }}}
+
+static int otf_write_woff_header(char *out,unsigned int version,int numTables,const OTF_WOFF_HEADER *woff) // {{{
+{
+  set_ULONG(out,OTF_TAG('w','O','F','F'));
+  set_ULONG(out+4,version);
+  set_ULONG(out+8,woff->length);
+  set_USHORT(out+12,numTables);
+  set_USHORT(out+14,0); // reserved, must be 0
+
+  set_ULONG(out+16,woff->origLength);
+  set_USHORT(out+20,woff->majorVersion);
+  set_USHORT(out+22,woff->minorVersion);
+  set_ULONG(out+24,woff->metaOffset);
+  set_ULONG(out+28,woff->metaLength);
+  set_ULONG(out+32,woff->metaOrigLength);
+  set_ULONG(out+36,woff->privOffset);
+  set_ULONG(out+30,woff->privLength);
+  return 44;
+}
+// }}}
+
+static int otf_write_directory_entry(char *out,const OTF_DIRENT *table) // {{{
+{
+  set_ULONG(out,table->tag);
+  set_ULONG(out+4,table->checkSum);
+  set_ULONG(out+8,table->offset);
+  set_ULONG(out+12,table->length);
+  return 16;
+}
+// }}}
+
+static int otf_write_woff_directory_entry(char *out,const OTF_DIRENT *table) // {{{
+{
+  set_ULONG(out,table->tag);
+  set_ULONG(out+4,table->offset);
+  set_ULONG(out+8,table->compLength);
+  set_ULONG(out+12,table->length);
+  set_ULONG(out+16,table->checkSum);
+  return 20;
+}
+// }}}
+
+// will change otw!
+int otf_write_sfnt(struct _OTF_WRITE *otw,unsigned int version,int numTables,OTF_WOFF_HEADER *woffHdr,OUTPUT_FN output,void *context) // {{{
 {
   int iA;
   int ret;
 
+  const int sfntStartSize=12+16*numTables;
+
   int *order=malloc(sizeof(int)*numTables); // temporary
-  char *start=malloc(12+16*numTables);
-  if ( (!order)||(!start) ) {
+  char *sfntStart=malloc(sfntStartSize);
+  if ( (!order)||(!sfntStart) ) {
     fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
     free(order);
-    free(start);
+    free(sfntStart);
     return -1;
   }
 
   if (1) { // sort tables
-    int priolist[NUM_PRIO]={0,};
-
-    // reverse intersection of both sorted arrays
-    int iA=numTables-1,iB=sizeof(otf_tagorder_win)/sizeof(otf_tagorder_win[0])-1;
-    int ret=numTables-1;
-    while ( (iA>=0)&&(iB>=0) ) {
-      if (otw[iA].tag==otf_tagorder_win[iB].tag) {
-        priolist[otf_tagorder_win[iB--].prio]=1+iA--;
-      } else if (otw[iA].tag>otf_tagorder_win[iB].tag) { // no order known: put unchanged at end of result
-        order[ret--]=iA--;
-      } else { // <
-        iB--;
-      }
-    }
-    for (iA=NUM_PRIO-1;iA>=0;iA--) { // pick the matched tables up in sorted order (bucketsort principle)
-      if (priolist[iA]) {
-        order[ret--]=priolist[iA]-1;
-      }
-    }
+    otf_tagorder_sort(otw,order,numTables);
   } else {
     for (iA=0;iA<numTables;iA++) {
       order[iA]=iA;
     }
   }
 
-  // the header
-  set_ULONG(start,version);
-  set_USHORT(start+4,numTables);
-  int a,b,c;
-  otf_bsearch_params(numTables,16,&a,&b,&c);
-  set_USHORT(start+6,a);
-  set_USHORT(start+8,b);
-  set_USHORT(start+10,c);
+  // the sfnt header
+  otf_write_header(sfntStart,version,numTables);
 
   // first pass: calculate table directory / offsets and checksums
-  unsigned int globalSum=0,csum;
-  int offset=12+16*numTables;
+  unsigned int globalSum=0;
+  int offset=sfntStartSize;
   int headAt=-1;
   for (iA=0;iA<numTables;iA++) {
-    char *entry=start+12+16*order[iA];
-    const int res=(*otw[order[iA]].action)(otw[order[iA]].param,otw[order[iA]].length,NULL,&csum);
-    assert(res>=0);
-    if (otw[order[iA]].tag==OTF_TAG('h','e','a','d')) {
+    const int pos=12+16*order[iA];
+    struct _OTF_WRITE *self=&otw[order[iA]];
+
+    if (self->tag==OTF_TAG('h','e','a','d')) {
       headAt=order[iA];
     }
-    set_ULONG(entry,otw[order[iA]].tag);
-    set_ULONG(entry+4,csum);
-    set_ULONG(entry+8,offset);
-    set_ULONG(entry+12,res);
-    offset+=(res+3)&~3; // padding
-    globalSum+=csum;
+
+    (*self->action)(self);
+    self->info.table.offset=offset;
+    otf_write_directory_entry(sfntStart+pos,&self->info.table);
+
+    offset+=otf_padded(self->info.table.length);
+    globalSum+=self->info.table.checkSum;
   }
+  globalSum+=otf_checksum(sfntStart,sfntStartSize);
 
-  // second pass: write actual data
-  // write header + directory
-  ret=12+16*numTables;
-  (*output)(start,ret,context);
-  globalSum+=otf_checksum(start,ret);
-
-  // change head
-  if ( (headAt!=-1)&&(otw[headAt].action==otf_action_copy) ) { // more needed?
-    otw[headAt].action=otf_action_copy_head;
-    otw[headAt].length=globalSum;
-  }
-
-  // write tables
-  for (iA=0;iA<numTables;iA++) {
-    const int res=(*otw[order[iA]].action)(otw[order[iA]].param,otw[order[iA]].length,output,context);
-    if (res<0) {
-      free(order);
-      free(start);
-      return -1;
+  // fix head
+  if (headAt!=-1) {
+    struct _OTF_WRITE *self=&otw[headAt];
+    if (action_load_data(self)!=0) {
+      goto fail;
     }
-    assert(((res+3)&~3)==res); // correctly padded? (i.e. next line is just ret+=res;)
-    ret+=(res+3)&~3;
+    set_ULONG(self->info.data+8,0xb1b0afba-globalSum); // fix global checksum
+    // TODO? >modify head time-stamp?
+  }
+
+  // 1.5th pass: write headers, compress data
+  if (!woffHdr) {
+    // write header + directory
+    ret=sfntStartSize;
+    (*output)(sfntStart,ret,context);
+  } else {
+    woffHdr->origLength=offset;
+
+    ret=offset=44+20*numTables; // must be recalculated with compressed tables
+    for (iA=0;iA<numTables;iA++) {
+      struct _OTF_WRITE *self=&otw[order[iA]];
+      if ( (action_load_data(self)!=0)||
+           (action_hlp_compress(self)!=0) ) {
+        goto fail;
+      }
+      self->info.table.offset=offset;
+      offset+=otf_padded(self->info.table.compLength);
+    }
+    if (woffHdr->metaLength) {
+      woffHdr->metaOffset=offset;
+    }
+    if (woffHdr->privLength) {
+      woffHdr->privOffset=offset+otf_padded(woffHdr->metaLength);
+    }
+    woffHdr->length=offset+otf_padded(woffHdr->metaLength)+woffHdr->privLength;
+
+    char woffStart[44];
+    otf_write_woff_header(woffStart,version,numTables,woffHdr);
+    (*output)(woffStart,44,context);
+
+    for (iA=0;iA<numTables;iA++) {
+      char entry[20];
+      otf_write_woff_directory_entry(entry,&otw[iA].info.table);
+      (*output)(entry,20,context);
+    }
+  }
+
+  // second pass: write tables
+  for (iA=0;iA<numTables;iA++) {
+    struct _OTF_WRITE *self=&otw[order[iA]];
+    if (action_load_data(self)!=0) {
+      goto fail;
+    }
+
+    const int pad_len=otf_padded(self->info.table.compLength);
+    (*output)(self->info.data,pad_len,context);
+
+    (*self->info.free)(self);
+    ret+=pad_len;
   }
   assert(offset==ret);
-  free(order);
-  free(start);
 
+  free(sfntStart);
+  free(order);
+  return ret;
+
+fail:
+  for (iA=0;iA<numTables;iA++) {
+    (*otw[iA].info.free)(&otw[iA]);
+  }
+  free(sfntStart);
+  free(order);
+  return -1;
+}
+// }}}
+
+int otf_write_woff(struct _OTF_WRITE *otw,unsigned int version,int numTables,const char *metaData,unsigned int metaLength,const char *privData,unsigned int privLength,OUTPUT_FN output,void *context) // {{{
+{
+  char *metaCompData=NULL;
+  OTF_WOFF_HEADER hdr={0, 0, 0x00,0x00}; // 0x00 0x00 are the woff-font version. TODO?
+
+  if ( (metaData)&&(metaLength>0) ) {
+    hdr.metaOrigLength=metaLength;
+    hdr.metaOffset=0; // later
+    unsigned long compLength;
+    metaCompData=otf_write_compressed_raw(metaData,metaLength,&compLength);
+    if (metaCompData) { // compressed
+      hdr.metaLength=compLength;
+    } else if (compLength==-1) { // error
+      return -1;
+    } else { // leave uncompressed
+      hdr.metaLength=metaLength;
+    }
+  }
+  if ( (privData)&&(privLength>0) ) {
+    hdr.privOffset=0; // later
+    hdr.privLength=privLength;
+  }
+
+  // otf_write_sfnt() takes care of hdr.length, hdr.origLength, hdr.metaOffset, hdr.privOffset
+  int ret=otf_write_sfnt(otw,version,numTables,&hdr,output,context);
+  if (ret<0) {
+    free(metaCompData);
+    return ret;
+  }
+
+  if (metaCompData) {
+    (*output)(metaCompData,metaLength,context);
+    ret+=metaLength;
+  } else if (metaData) {
+    (*output)(metaData,metaLength,context);
+    ret+=metaLength;
+  }
+  const int extrapad=otf_padded(metaLength)-metaLength;
+  if (extrapad) {
+    const char pad[4]={0,0,0,0};
+    (*output)(pad,extrapad,context);
+    ret+=extrapad;
+  }
+  if (privData) {
+    (*output)(privData,privLength,context);
+    ret+=privLength;
+  }
+  free(metaCompData);
+  assert(ret==hdr.length);
   return ret;
 }
 // }}}
