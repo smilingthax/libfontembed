@@ -14,48 +14,51 @@ int otf_ttc_extract(OTF_FILE *otf,OUTPUT_FN output,void *context) // {{{
   assert(otf->numTTC);
   int iA;
 
-  struct _OTF_WRITE *otw;
-  otw=malloc(sizeof(struct _OTF_WRITE)*otf->numTables);
-  if (!otw) {
+  struct _OTF_WRITE_INFO otw={
+    .version=otf->version,
+    .numTables=otf->numTables
+  };
+  otw.tables=malloc(sizeof(struct _OTF_WRITE_TABLE)*otf->numTables);
+  if (!otw.tables) {
     fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
     return -1;
   }
 
   // just copy everything
   for (iA=0;iA<otf->numTables;iA++) {
-    otw[iA].tag=otf->tables[iA].tag;
-    otw[iA].action=otf_action_copy;
-    otw[iA].args.copy.otf=otf;
-    otw[iA].args.copy.table_no=iA;
+    otw.tables[iA].tag=otf->tables[iA].tag;
+    otw.tables[iA].action=otf_action_copy;
+    otw.tables[iA].args.copy.otf=otf;
+    otw.tables[iA].args.copy.table_no=iA;
   }
-  iA=otf_write_sfnt(otw,otf->version,otf->numTables,NULL,output,context);
-  free(otw);
+  iA=otf_write_sfnt(&otw,NULL,output,context);
+  free(otw.tables);
 
   return iA;
 }
 // }}}
 
 // otw {0,}-terminated, will be modified; returns numTables for otf_write_sfnt
-int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE *otw) // {{{
+int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE_TABLE *tables) // {{{
 {
   int iA,iB,numTables=0;
-  for (iA=0,iB=0;(iA<otf->numTables)&&(otw[iB].tag);) {
-    if (otf->tables[iA].tag==otw[iB].tag) {
-      if (otw[iB].action==otf_action_copy) {
-        otw[iB].args.copy.table_no=iA; // original table location found.
+  for (iA=0,iB=0;(iA<otf->numTables)&&(tables[iB].tag);) {
+    if (otf->tables[iA].tag==tables[iB].tag) {
+      if (tables[iB].action==otf_action_copy) {
+        tables[iB].args.copy.table_no=iA; // original table location found.
       }
       if (iB!=numTables) { // >, actually
-        memmove(otw+numTables,otw+iB,sizeof(struct _OTF_WRITE));
+        memmove(tables+numTables,tables+iB,sizeof(struct _OTF_WRITE_TABLE));
       }
       iA++;
       iB++;
       numTables++;
-    } else if (otf->tables[iA].tag<otw[iB].tag) {
+    } else if (otf->tables[iA].tag<tables[iB].tag) {
       iA++;
     } else { // not in otf->tables
-      if (otw[iB].action!=otf_action_copy) { // keep
+      if (tables[iB].action!=otf_action_copy) { // keep
         if (iB!=numTables) { // >, actually
-          memmove(otw+numTables,otw+iB,sizeof(struct _OTF_WRITE));
+          memmove(tables+numTables,tables+iB,sizeof(struct _OTF_WRITE_TABLE));
         }
         numTables++;
       } // else delete
@@ -192,7 +195,7 @@ int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{
   assert(offset==glyfSize);
 
   // determine new tables.
-  struct _OTF_WRITE otw[]={ // sorted
+  struct _OTF_WRITE_TABLE tables[]={ // sorted
     // TODO: cmap only required in non-CID context   or always in CFF
       {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
       {OTF_TAG('c','v','t',' '),otf_action_copy,.args.copy={otf,}},
@@ -209,8 +212,13 @@ int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{
       {0,0,}};
 
   // and write them
-  int numTables=otf_intersect_tables(otf,otw);
-  int ret=otf_write_sfnt(otw,otf->version,numTables,NULL,output,context);
+  int numTables=otf_intersect_tables(otf,tables);
+  struct _OTF_WRITE_INFO otw={
+    .version=otf->version,
+    .numTables=numTables,
+    .tables=tables
+  };
+  int ret=otf_write_sfnt(&otw,NULL,output,context);
 
   free(new_loca);
   free(new_glyf);
@@ -230,7 +238,7 @@ int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) /
 // TODO char *new_cff=cff_subset(...);
 
   // determine new tables.
-  struct _OTF_WRITE otw[]={
+  struct _OTF_WRITE_TABLE tables[]={
       {OTF_TAG('C','F','F',' '),otf_action_copy,.args.copy={otf,}},
 //      {OTF_TAG('C','F','F',' '),otf_action_replace,new_glyf,glyfSize},
       {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
@@ -247,8 +255,13 @@ int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) /
       {0,0,}};
 
   // and write them
-  int numTables=otf_intersect_tables(otf,otw);
-  int ret=otf_write_sfnt(otw,otf->version,numTables,NULL,output,context);
+  int numTables=otf_intersect_tables(otf,tables);
+  struct _OTF_WRITE_INFO otw={
+    .version=otf->version,
+    .numTables=numTables,
+    .tables=tables
+  };
+  int ret=otf_write_sfnt(&otw,NULL,output,context);
 
 //  free(new_cff);
   return ret;
@@ -295,6 +308,16 @@ int otf_cff_extract(OTF_FILE *otf,OUTPUT_FN output,void *context) // {{{ - retur
 {
   assert(otf);
   assert(output);
+
+  if (otf->flags&OTF_F_WOFF) {
+    int len;
+    char *data=otf_get_table(otf,OTF_TAG('C','F','F',' '),&len);
+    if (!data) {
+      return -1;
+    }
+    (*output)(data,len,context);
+    return len;
+  }
 
   int idx=otf_find_table(otf,OTF_TAG('C','F','F',' '));
   if (idx==-1) {

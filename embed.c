@@ -94,6 +94,9 @@ EMB_PARAMS *emb_new(FONTFILE *font,EMB_DESTINATION dest,EMB_CONSTRAINTS mode) //
     } else {
       ret->intype=EMB_FMT_TTF;
     }
+    if (font->sfnt->flags&OTF_F_WOFF) {
+      ret->plan|=EMB_A_NO_VERBATIM;
+    }
     ret->rights=emb_otf_get_rights(ret->font->sfnt);
     numGlyphs=ret->font->sfnt->numGlyphs; // TODO
   } else if (font->stdname) {
@@ -207,6 +210,8 @@ int emb_embed(EMB_PARAMS *emb,OUTPUT_FN output,void *context) // {{{
         return otf_subset(emb->font->sfnt,emb->subset,output,context);
       } else if (emb->font->sfnt->numTTC) { //
         return otf_ttc_extract(emb->font->sfnt,output,context);
+      } else if (emb->plan&EMB_A_NO_VERBATIM) {
+        return otf_ttc_extract(emb->font->sfnt,output,context); // TODO: rename  TODO: no EMB_A_NO_VERBATIM, just one copy_sfnt function
       } else { // copy verbatim
         return copy_file(emb->font->sfnt->f,output,context);
       }
@@ -222,6 +227,8 @@ int emb_embed(EMB_PARAMS *emb,OUTPUT_FN output,void *context) // {{{
         assert(emb->font->sfnt);
         if (emb->plan&EMB_A_SUBSET) {
           return otf_subset_cff(emb->font->sfnt,emb->subset,output,context);
+        } else if (emb->plan&EMB_A_NO_VERBATIM) {
+          return otf_ttc_extract(emb->font->sfnt,output,context); // TODO: rename  TODO: no EMB_A_NO_VERBATIM, just one copy_sfnt function
         } else {
           return copy_file(emb->font->sfnt->f,output,context);
         }

@@ -593,10 +593,10 @@ int emb_otf_ps(OTF_FILE *otf,unsigned short *encoding,int len,unsigned short *to
   //   otf_action_copy  does exactly one output call (per table)
   //   only otf_action_replace might do two (padding)
   // {{{ copy tables verbatim (does not affect ds .len)
-  struct _OTF_WRITE *otfree=NULL;
+  struct _OTF_WRITE_TABLE *otwfree=NULL;
 #if 0
-  struct _OTF_WRITE *otw;
-  otwfree=otw=malloc(sizeof(struct _OTF_WRITE)*otf->numTables);
+  struct _OTF_WRITE_TABLE *otw;
+  otwfree=otw=malloc(sizeof(struct _OTF_WRITE_TABLE)*otf->numTables);
   if (!otw) {
     fprintf(stderr,"Bad alloc: %m\n");
     free(post);
@@ -612,7 +612,7 @@ int emb_otf_ps(OTF_FILE *otf,unsigned short *encoding,int len,unsigned short *to
   }
   int numTables=otf->numTables;
 #else
-  struct _OTF_WRITE otw[]={ // sorted
+  struct _OTF_WRITE_TABLE otw[]={ // sorted
       {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
       {OTF_TAG('c','v','t',' '),otf_action_copy,.args.copy={otf,}},
       {OTF_TAG('f','p','g','m'),otf_action_copy,.args.copy={otf,}},
@@ -633,12 +633,17 @@ int emb_otf_ps(OTF_FILE *otf,unsigned short *encoding,int len,unsigned short *to
   of.out=output;
   of.ctx=context;
   of.len=0;
+  struct _OTF_WRITE_INFO otwinfo={
+    .version=otf->version,
+    .numTables=numTables,
+    .tables=otw
+  };
   if (binary) {
-    iA=otf_write_sfnt(otw,otf->version,numTables,NULL,outfilter_binary_ps,&of);
+    iA=otf_write_sfnt(&otwinfo,NULL,outfilter_binary_ps,&of);
   } else {
-    iA=otf_write_sfnt(otw,otf->version,numTables,NULL,outfilter_ascii_ps,&of);
+    iA=otf_write_sfnt(&otwinfo,NULL,outfilter_ascii_ps,&of);
   }
-  free(otfree);
+  free(otwfree);
   if (iA==-1) {
     free(post);
     free(ds.buf);

@@ -86,17 +86,20 @@ int otf_load_more(OTF_FILE *otf); //  - 0 on success
 
 int otf_find_table(OTF_FILE *otf,unsigned int tag); // - table_index  or -1 on error
 
-struct _OTF_WRITE;
+// NOTE: you probably want otf_get_table()
+char *otf_read_table(OTF_FILE *otf,char *buf,const OTF_DIRENT *table);
+
+struct _OTF_WRITE_TABLE;
 struct _OTF_ACTION {
   char *data;
   OTF_DIRENT table;
-  int (*load)(struct _OTF_WRITE *self); // 0 on success
-  void (*free)(struct _OTF_WRITE *self);
+  int (*load)(struct _OTF_WRITE_TABLE *self); // 0 on success
+  void (*free)(struct _OTF_WRITE_TABLE *self);
 };
 
-struct _OTF_WRITE {
+struct _OTF_WRITE_TABLE {
   unsigned long tag;
-  void (*action)(struct _OTF_WRITE *self);
+  void (*action)(struct _OTF_WRITE_TABLE *self);
   union {
     struct {
       OTF_FILE *otf;
@@ -107,21 +110,29 @@ struct _OTF_WRITE {
       int length; // data has to have enough extra space for padding!
     } replace;
   } args;
+
+  // internal
   struct _OTF_ACTION info;
 };
 
-void otf_action_copy(struct _OTF_WRITE *self);
-void otf_action_replace(struct _OTF_WRITE *self);
+void otf_action_copy(struct _OTF_WRITE_TABLE *self);
+void otf_action_replace(struct _OTF_WRITE_TABLE *self);
+
+struct _OTF_WRITE_INFO {
+  unsigned int version;
+  unsigned short numTables;
+  struct _OTF_WRITE_TABLE *tables;
+};
 
 // will change otw!
 // Note: woffHdr is for internal use by otf_write_woff().
-int otf_write_sfnt(struct _OTF_WRITE *otw,unsigned int version,int numTables,OTF_WOFF_HEADER *woffHdr,OUTPUT_FN output,void *context);
+int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,OTF_WOFF_HEADER *woffHdr,OUTPUT_FN output,void *context);
 
-int otf_write_woff(struct _OTF_WRITE *otw,unsigned int version,int numTables,const char *metaData,unsigned int metaLength,const char *privData,unsigned int privLength,OUTPUT_FN output,void *context);
+int otf_write_woff(struct _OTF_WRITE_INFO *otw,const char *metaData,unsigned int metaLength,const char *privData,unsigned int privLength,OUTPUT_FN output,void *context);
 
 /** from sfnt_subset.c: **/
 
 // otw {0,}-terminated, will be modified; returns numTables for otf_write_sfnt
-int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE *otw);
+int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE_TABLE *otw);
 
 #endif

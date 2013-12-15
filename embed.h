@@ -28,6 +28,7 @@ typedef enum { EMB_A_MULTIBYTE=0x01,    // embedd as multibyte font?
                EMB_A_T1_TO_CFF=0x04,    // convert Type1 to CFF?
                EMB_A_CFF_TO_OTF=0x08,   // wrap CFF(from input or T1+CONVERT_CFF) in sfnt? (OTF)
                EMB_A_OTF_TO_CFF=0x10,   // unwrap CFF
+               EMB_A_NO_VERBATIM=0x20,  // e.g. uncompression needed
 
                EMB_A_CLOSE_FONTFILE=0x8000
                } EMB_ACTIONS;
