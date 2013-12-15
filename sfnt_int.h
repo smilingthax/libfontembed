@@ -124,9 +124,20 @@ struct _OTF_WRITE_INFO {
   struct _OTF_WRITE_TABLE *tables;
 };
 
+struct _OTF_WRITE_WOFF {
+  unsigned short majorVersion,minorVersion;
+
+  const char *metaData;
+  unsigned int metaLength;
+  const char *privData;
+  unsigned int privLength;
+
+  // private
+  char *metaCompData;
+};
+
 // will change otw!
-// Note: woffHdr is for internal use by otf_write_woff().
-int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,OTF_WOFF_HEADER *woffHdr,OUTPUT_FN output,void *context);
+int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context);
 
 int otf_write_woff(struct _OTF_WRITE_INFO *otw,const char *metaData,unsigned int metaLength,const char *privData,unsigned int privLength,OUTPUT_FN output,void *context);
 

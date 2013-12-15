@@ -260,34 +260,20 @@ void otf_action_replace(struct _OTF_WRITE_TABLE *self) // {{{
 }
 // }}}
 
+
 /*
-struct _OTF_WRITE_WOFF {
-  unsigned short majorVersion,minorVersion;
-
-  const char *metaData;
-  unsigned int metaLength;
-  const char *privData;
-  unsigned int privLength;
-
-  struct {
-    OTF_WOFF_HEADER hdr;
-    char *metaCompData;
-  } private;
-};
-
 struct {
-  struct _OTF_WRITE_INFO *otw;
+  struct _OTF_WRITE_INFO otw;
 
   const struct _OTF_WRITE_WOFF *woff;
 
   OUTPUT_FN output;
   void *context;
-} OTF_WRITE_SFNT;
-
-// sortingMode
 
 // internal
+  // sortingMode
 int *order; // ?? better as param   // but this allows sorting "beforehand"
+} OTF_WRITE_SFNT;
 */
 
 static int otf_write_header(const struct _OTF_WRITE_INFO *otw,char *out) // {{{
@@ -313,6 +299,39 @@ static int otf_write_header(const struct _OTF_WRITE_INFO *otw,char *out) // {{{
     ret+=16;
   }
   return ret;
+}
+// }}}
+
+static int otf_prepare_woff_header(OTF_WOFF_HEADER *hdr,struct _OTF_WRITE_WOFF *woff,unsigned int origLength,unsigned int sfntCompLength) // {{{
+{
+  hdr->origLength=origLength;
+  hdr->majorVersion=woff->majorVersion;
+  hdr->minorVersion=woff->minorVersion;
+
+  if ( (woff->metaData)&&(woff->metaLength>0) ) {
+    unsigned long compLength;
+    woff->metaCompData=otf_write_compressed_raw(woff->metaData,woff->metaLength,&compLength);
+    if ( (!woff->metaCompData)&&(compLength==-1) ) { // error
+      return -1;
+    }
+    hdr->metaOffset=sfntCompLength;
+    hdr->metaLength=compLength;
+    hdr->metaOrigLength=woff->metaLength;
+  } else {
+    hdr->metaOffset=0;
+    hdr->metaLength=0;
+    hdr->metaOrigLength=0;
+  }
+  if ( (woff->privData)&&(woff->privLength>0) ) {
+    hdr->privOffset=sfntCompLength+otf_padded(hdr->metaLength);
+    hdr->privLength=woff->privLength;
+  } else {
+    hdr->privOffset=0;
+    hdr->privLength=0;
+  }
+
+  hdr->length=sfntCompLength+otf_padded(hdr->metaLength)+hdr->privLength;
+  return 0;
 }
 // }}}
 
@@ -357,32 +376,32 @@ static int otf_write_woff_header(const struct _OTF_WRITE_INFO *otw,const OTF_WOF
 }
 // }}}
 
-static int otf_fixup_woff_header(struct _OTF_WRITE_TABLE *tables,const int *order,int numTables,OTF_WOFF_HEADER *woffHdr) // {{{
+static int otf_write_woff_footer(struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{
 {
-  int offset=44+20*numTables;
-  int iA;
-  for (iA=0;iA<numTables;iA++) {
-    struct _OTF_WRITE_TABLE *self=&tables[order[iA]];
-    if ( (action_load_data(self)!=0)||
-         (action_hlp_compress(self)!=0) ) {
-      return -1;
-    }
-    self->info.table.offset=offset;
-    offset+=otf_padded(self->info.table.compLength);
+  int ret=0;
+  if (woff->metaCompData) {
+    (*output)(woff->metaCompData,woff->metaLength,context);
+    ret+=woff->metaLength;
+  } else if (woff->metaData) {
+    (*output)(woff->metaData,woff->metaLength,context);
+    ret+=woff->metaLength;
   }
-  if (woffHdr->metaLength) {
-    woffHdr->metaOffset=offset;
+  const int extrapad=otf_padded(woff->metaLength)-woff->metaLength;
+  if (extrapad) {
+    const char pad[4]={0,0,0,0};
+    (*output)(pad,extrapad,context);
+    ret+=extrapad;
   }
-  if (woffHdr->privLength) {
-    woffHdr->privOffset=offset+otf_padded(woffHdr->metaLength);
+  if (woff->privData) {
+    (*output)(woff->privData,woff->privLength,context);
+    ret+=woff->privLength;
   }
-  woffHdr->length=offset+otf_padded(woffHdr->metaLength)+woffHdr->privLength;
-  return offset;
+  return ret;
 }
 // }}}
 
 // will change otw!
-int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,OTF_WOFF_HEADER *woffHdr,OUTPUT_FN output,void *context) // {{{
+int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{
 {
   int iA;
   const int sfntStartSize=12+16*otw->numTables;
@@ -426,7 +445,7 @@ int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,OTF_WOFF_HEADER *woffHdr,OUTPUT_F
   globalSum+=otf_checksum(sfntStart,sfntStartSize);
 
   int ret=0;
-  if (!woffHdr) { // simple sfnt
+  if (!woff) { // simple sfnt
     // write header + directory
     ret=sfntStartSize;
     (*output)(sfntStart,ret,context);
@@ -437,31 +456,46 @@ int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,OTF_WOFF_HEADER *woffHdr,OUTPUT_F
   if (headAt!=-1) {
     struct _OTF_WRITE_TABLE *self=&otw->tables[headAt];
     if (action_load_data(self)!=0) {
-      goto fail;
+      ret=-1;
+      goto done;
     }
     set_ULONG(self->info.data+8,0xb1b0afba-globalSum); // fix global checksum
     // TODO? >modify head time-stamp?
   }
 
   // pass 1.5: compress data, write woff header
-  if (woffHdr) {
-    woffHdr->origLength=offset;
+  if (woff) {
+    const int origLength=offset;
+    const int woffStartSize=44+20*otw->numTables;
 
-    // recalculate offsets with compressed tables
-    offset=otf_fixup_woff_header(otw->tables,order,otw->numTables,woffHdr); // also does the compression
-    if (offset<0) {
-      goto fail;
+    offset=woffStartSize;
+    for (iA=0;iA<otw->numTables;iA++) {
+      struct _OTF_WRITE_TABLE *self=&otw->tables[order[iA]];
+      if ( (action_load_data(self)!=0)||
+           (action_hlp_compress(self)!=0) ) {
+        ret=-1;
+        goto done;
+      }
+      self->info.table.offset=offset;
+      offset+=otf_padded(self->info.table.compLength);
     }
 
-    ret=otf_write_woff_header(otw,woffHdr,output,context);
-    assert(ret==offset);
+    OTF_WOFF_HEADER woffHdr;
+    if (otf_prepare_woff_header(&woffHdr,woff,origLength,offset)!=0) {
+      ret=-1;
+      goto done;
+    }
+    offset=woffHdr.length;
+    ret=otf_write_woff_header(otw,&woffHdr,output,context);
+    assert(ret==woffStartSize);
   }
 
   // second pass: write tables
   for (iA=0;iA<otw->numTables;iA++) {
     struct _OTF_WRITE_TABLE *self=&otw->tables[order[iA]];
     if (action_load_data(self)!=0) {
-      goto fail;
+      ret=-1;
+      goto done;
     }
 
     const int pad_len=otf_padded(self->info.table.compLength);
@@ -470,70 +504,41 @@ int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,OTF_WOFF_HEADER *woffHdr,OUTPUT_F
     (*self->info.free)(self);
     ret+=pad_len;
   }
+
+  if (woff) {
+    ret+=otf_write_woff_footer(woff,output,context);
+  }
   assert(ret==offset);
 
-  free(order);
-  return ret;
-
-fail:
-  for (iA=0;iA<otw->numTables;iA++) {
-    (*otw->tables[iA].info.free)(&otw->tables[iA]);
+done:
+  if (ret==-1) {
+    for (iA=0;iA<otw->numTables;iA++) {
+      (*otw->tables[iA].info.free)(&otw->tables[iA]);
+    }
+  }
+  if (woff) {
+    free(woff->metaCompData);
+    woff->metaCompData=NULL;
   }
   free(order);
-  return -1;
+  return ret;
 }
 // }}}
 
+// TODO: can be removed
 int otf_write_woff(struct _OTF_WRITE_INFO *otw,const char *metaData,unsigned int metaLength,const char *privData,unsigned int privLength,OUTPUT_FN output,void *context) // {{{
 {
-  char *metaCompData=NULL;
-  OTF_WOFF_HEADER hdr={0, 0, 0x00,0x00}; // 0x00 0x00 are the woff-font version. TODO?
+  struct _OTF_WRITE_WOFF woff;
 
-  if ( (metaData)&&(metaLength>0) ) {
-    hdr.metaOrigLength=metaLength;
-    hdr.metaOffset=0; // later
-    unsigned long compLength;
-    metaCompData=otf_write_compressed_raw(metaData,metaLength,&compLength);
-    if (metaCompData) { // compressed
-      hdr.metaLength=compLength;
-    } else if (compLength==-1) { // error
-      return -1;
-    } else { // leave uncompressed
-      hdr.metaLength=metaLength;
-    }
-  }
-  if ( (privData)&&(privLength>0) ) {
-    hdr.privOffset=0; // later
-    hdr.privLength=privLength;
-  }
+  woff.majorVersion=0; // TODO?
+  woff.minorVersion=0;
+  woff.metaData=metaData;
+  woff.metaLength=metaLength;
+  woff.privData=privData;
+  woff.privLength=privLength;
+  woff.metaCompData=NULL;
 
-  // otf_write_sfnt() takes care of hdr.length, hdr.origLength, hdr.metaOffset, hdr.privOffset
-  int ret=otf_write_sfnt(otw,&hdr,output,context);
-  if (ret<0) {
-    free(metaCompData);
-    return ret;
-  }
-
-  if (metaCompData) {
-    (*output)(metaCompData,metaLength,context);
-    ret+=metaLength;
-  } else if (metaData) {
-    (*output)(metaData,metaLength,context);
-    ret+=metaLength;
-  }
-  const int extrapad=otf_padded(metaLength)-metaLength;
-  if (extrapad) {
-    const char pad[4]={0,0,0,0};
-    (*output)(pad,extrapad,context);
-    ret+=extrapad;
-  }
-  if (privData) {
-    (*output)(privData,privLength,context);
-    ret+=privLength;
-  }
-  free(metaCompData);
-  assert(ret==hdr.length);
-  return ret;
+  return otf_write_sfnt(otw,&woff,output,context);
 }
 // }}}
 
