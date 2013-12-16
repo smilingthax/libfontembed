@@ -177,8 +177,8 @@ static void action_nop(struct _OTF_WRITE_TABLE *self) // {{{
 // problem: PS currently depends on single-output.  also checksum not possible
 static int action_copy_load(struct _OTF_WRITE_TABLE *self) // {{{
 {
-  OTF_FILE *otf=self->args.copy.otf;
-  const OTF_DIRENT *table=otf->tables+self->args.copy.table_no;
+  OTF_FILE *otf=self->copy.otf;
+  const OTF_DIRENT *table=otf->tables+self->copy.table_no;
 
   char *data=otf_read_table(otf,NULL,table);
   if (!data) {
@@ -229,8 +229,8 @@ static int action_load_data(struct _OTF_WRITE_TABLE *self) // {{{
 
 void otf_action_copy(struct _OTF_WRITE_TABLE *self) // {{{
 {
-  OTF_FILE *otf=self->args.copy.otf;
-  const OTF_DIRENT *table=otf->tables+self->args.copy.table_no;
+  OTF_FILE *otf=self->copy.otf;
+  const OTF_DIRENT *table=otf->tables+self->copy.table_no;
 
   // get checksum and unpadded length
   self->info.table.tag=self->tag;
@@ -247,8 +247,8 @@ void otf_action_copy(struct _OTF_WRITE_TABLE *self) // {{{
 
 void otf_action_replace(struct _OTF_WRITE_TABLE *self) // {{{
 {
-  char *data=self->args.replace.data;
-  int length=self->args.replace.length;
+  char *data=self->replace.data;
+  int length=self->replace.length;
 
   // get checksum and unpadded length
   self->info.table.tag=self->tag;

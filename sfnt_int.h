@@ -109,7 +109,7 @@ struct _OTF_WRITE_TABLE {
       char *data; // will be modified: padding=0, and to fix head csum
       int length; // data has to have enough extra space for padding!
     } replace;
-  } args;
+  };
 
   // internal
   struct _OTF_ACTION info;
@@ -150,5 +150,6 @@ int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE_TABLE *otw);
 
 int otf_copy_sfnt(OTF_FILE *otf,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context); // woff can be NULL
 int otf_subset2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context); // returns number of bytes written
+int otf_subset_cff2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context);
 
 #endif

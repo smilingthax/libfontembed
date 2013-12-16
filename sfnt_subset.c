@@ -27,8 +27,8 @@ int otf_copy_sfnt(OTF_FILE *otf,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,vo
   for (iA=0;iA<otf->numTables;iA++) {
     otw.tables[iA].tag=otf->tables[iA].tag;
     otw.tables[iA].action=otf_action_copy;
-    otw.tables[iA].args.copy.otf=otf;
-    otw.tables[iA].args.copy.table_no=iA;
+    otw.tables[iA].copy.otf=otf;
+    otw.tables[iA].copy.table_no=iA;
   }
   otw.order=otf_tagorder_offset_sort(otf);
 
@@ -55,7 +55,7 @@ int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE_TABLE *tables) // {{{
   for (iA=0,iB=0;(iA<otf->numTables)&&(tables[iB].tag);) {
     if (otf->tables[iA].tag==tables[iB].tag) {
       if (tables[iB].action==otf_action_copy) {
-        tables[iB].args.copy.table_no=iA; // original table location found.
+        tables[iB].copy.table_no=iA; // original table location found.
       }
       if (iB!=numTables) { // >, actually
         memmove(tables+numTables,tables+iB,sizeof(struct _OTF_WRITE_TABLE));
@@ -207,17 +207,17 @@ int otf_subset2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_
   // determine new tables.
   struct _OTF_WRITE_TABLE tables[]={ // sorted
     // TODO: cmap only required in non-CID context   or always in CFF
-      {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('c','v','t',' '),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('f','p','g','m'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('g','l','y','f'),otf_action_replace,.args.replace={new_glyf,glyfSize}},
-      {OTF_TAG('h','e','a','d'),otf_action_copy,.args.copy={otf,}}, // _copy_head
-      {OTF_TAG('h','h','e','a'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('h','m','t','x'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('l','o','c','a'),otf_action_replace,.args.replace={new_loca,locaSize}},
-      {OTF_TAG('m','a','x','p'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('n','a','m','e'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('p','r','e','p'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('c','m','a','p'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('c','v','t',' '),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('f','p','g','m'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('g','l','y','f'),otf_action_replace,.replace={new_glyf,glyfSize}},
+      {OTF_TAG('h','e','a','d'),otf_action_copy,.copy={otf,}}, // _copy_head
+      {OTF_TAG('h','h','e','a'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('h','m','t','x'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('l','o','c','a'),otf_action_replace,.replace={new_loca,locaSize}},
+      {OTF_TAG('m','a','x','p'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('n','a','m','e'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('p','r','e','p'),otf_action_copy,.copy={otf,}},
       // vhea vmtx (never used in PDF, but possible in PS>=3011)
       {0,0,}};
 
@@ -229,7 +229,7 @@ int otf_subset2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_
     .tables=tables,
     .order=otf_tagorder_win_sort(tables,numTables)
   };
-  const int ret=otf_write_sfnt(&otw,NULL,output,context);
+  const int ret=otf_write_sfnt(&otw,woff,output,context);
 
   free(otw.order);
   free(new_loca);
@@ -248,7 +248,7 @@ int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{
 // }}}
 
 // TODO no subsetting actually done (for now)
-int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
+int otf_subset_cff2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
 {
   assert(otf);
   assert(output);
@@ -257,18 +257,18 @@ int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) /
 
   // determine new tables.
   struct _OTF_WRITE_TABLE tables[]={
-      {OTF_TAG('C','F','F',' '),otf_action_copy,.args.copy={otf,}},
-//      {OTF_TAG('C','F','F',' '),otf_action_replace,new_glyf,glyfSize},
-      {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('C','F','F',' '),otf_action_copy,.copy={otf,}},
+//      {OTF_TAG('C','F','F',' '),otf_action_replace,.replace={new_glyf,glyfSize}},
+      {OTF_TAG('c','m','a','p'),otf_action_copy,.copy={otf,}},
 #if 0 // not actually needed!
-      {OTF_TAG('c','v','t',' '),otf_action_copy,otf,},
-      {OTF_TAG('f','p','g','m'),otf_action_copy,otf,},
-      {OTF_TAG('h','e','a','d'),otf_action_copy,otf,}, // _copy_head
-      {OTF_TAG('h','h','e','a'),otf_action_copy,otf,},
-      {OTF_TAG('h','m','t','x'),otf_action_copy,otf,},
-      {OTF_TAG('m','a','x','p'),otf_action_copy,otf,},
-      {OTF_TAG('n','a','m','e'),otf_action_copy,otf,},
-      {OTF_TAG('p','r','e','p'),otf_action_copy,otf,},
+      {OTF_TAG('c','v','t',' '),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('f','p','g','m'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('h','e','a','d'),otf_action_copy,.copy={otf,}}, // _copy_head
+      {OTF_TAG('h','h','e','a'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('h','m','t','x'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('m','a','x','p'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('n','a','m','e'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('p','r','e','p'),otf_action_copy,.copy={otf,}},
 #endif
       {0,0,}};
 
@@ -280,11 +280,17 @@ int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) /
     .tables=tables,
     .order=otf_tagorder_win_sort(tables,numTables)
   };
-  const int ret=otf_write_sfnt(&otw,NULL,output,context);
+  const int ret=otf_write_sfnt(&otw,woff,output,context);
 
   free(otw.order);
 //  free(new_cff);
   return ret;
+}
+// }}}
+
+int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
+{
+  return otf_subset_cff2(otf,glyphs,NULL,output,context);
 }
 // }}}
 

@@ -607,23 +607,23 @@ int emb_otf_ps(OTF_FILE *otf,unsigned short *encoding,int len,unsigned short *to
   for (iA=0;iA<otf->numTables;iA++) {
     tables[iA].tag=otf->tables[iA].tag;
     tables[iA].action=otf_action_copy;
-    tables[iA].args.copy.otf=otf;
-    tables[iA].args.copy.table_no=iA;
+    tables[iA].copy.otf=otf;
+    tables[iA].copy.table_no=iA;
   }
   const int numTables=otf->numTables;
 #else
   struct _OTF_WRITE_TABLE tables[]={ // sorted
-      {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('c','v','t',' '),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('f','p','g','m'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('g','l','y','f'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('h','e','a','d'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('h','h','e','a'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('h','m','t','x'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('l','o','c','a'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('m','a','x','p'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('n','a','m','e'),otf_action_copy,.args.copy={otf,}},
-      {OTF_TAG('p','r','e','p'),otf_action_copy,.args.copy={otf,}},
+      {OTF_TAG('c','m','a','p'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('c','v','t',' '),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('f','p','g','m'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('g','l','y','f'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('h','e','a','d'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('h','h','e','a'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('h','m','t','x'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('l','o','c','a'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('m','a','x','p'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('n','a','m','e'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('p','r','e','p'),otf_action_copy,.copy={otf,}},
       // vhea vmtx (never used in PDF, but possible in PS>=3011)
       {0,0,}};
   const int numTables=otf_intersect_tables(otf,tables);
