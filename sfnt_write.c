@@ -265,12 +265,6 @@ void otf_action_replace(struct _OTF_WRITE_TABLE *self) // {{{
 // }}}
 
 
-/* internal
-  // sortingMode
-int *order; // ?? better as param   // but this allows sorting "beforehand"
-} OTF_WRITE_SFNT;
-*/
-
 static int otf_write_header(const struct _OTF_WRITE_INFO *otw,char *out) // {{{
 {
   // header
@@ -516,23 +510,6 @@ done:
     woff->metaCompData=NULL;
   }
   return ret;
-}
-// }}}
-
-// TODO: can be removed
-int otf_write_woff(struct _OTF_WRITE_INFO *otw,const char *metaData,unsigned int metaLength,const char *privData,unsigned int privLength,OUTPUT_FN output,void *context) // {{{
-{
-  struct _OTF_WRITE_WOFF woff;
-
-  woff.majorVersion=0; // TODO?
-  woff.minorVersion=0;
-  woff.metaData=metaData;
-  woff.metaLength=metaLength;
-  woff.privData=privData;
-  woff.privLength=privLength;
-  woff.metaCompData=NULL;
-
-  return otf_write_sfnt(otw,&woff,output,context);
 }
 // }}}
 

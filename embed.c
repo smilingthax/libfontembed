@@ -1,5 +1,6 @@
 #include "embed.h"
 #include "embed_sfnt_int.h"
+#include "sfnt_int.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -22,6 +23,16 @@ static inline int copy_file(FILE *f,OUTPUT_FN output,void *context) // {{{
     ret+=iA;
   } while (iA>0);
   return ret;
+}
+// }}}
+
+static inline int copy_otf(OTF_FILE *otf,OUTPUT_FN output,void *context) // {{{
+{
+  if (otf->flags&OTF_F_WOFF) {
+    return otf_copy_sfnt(otf,NULL,output,context);
+  } else {
+    return copy_file(otf->f,output,context);
+  }
 }
 // }}}
 
@@ -93,9 +104,6 @@ EMB_PARAMS *emb_new(FONTFILE *font,EMB_DESTINATION dest,EMB_CONSTRAINTS mode) //
       ret->intype=EMB_FMT_OTF;
     } else {
       ret->intype=EMB_FMT_TTF;
-    }
-    if (font->sfnt->flags&OTF_F_WOFF) {
-      ret->plan|=EMB_A_NO_VERBATIM;
     }
     ret->rights=emb_otf_get_rights(ret->font->sfnt);
     numGlyphs=ret->font->sfnt->numGlyphs; // TODO
@@ -208,12 +216,10 @@ int emb_embed(EMB_PARAMS *emb,OUTPUT_FN output,void *context) // {{{
       assert(emb->font->sfnt);
       if (emb->plan&EMB_A_SUBSET) {
         return otf_subset(emb->font->sfnt,emb->subset,output,context);
-      } else if (emb->font->sfnt->numTTC) { //
+      } else if (emb->font->sfnt->numTTC) { // simply copy the currently loaded numTTC
         return otf_ttc_extract(emb->font->sfnt,output,context);
-      } else if (emb->plan&EMB_A_NO_VERBATIM) {
-        return otf_ttc_extract(emb->font->sfnt,output,context); // TODO: rename  TODO: no EMB_A_NO_VERBATIM, just one copy_sfnt function
       } else { // copy verbatim
-        return copy_file(emb->font->sfnt->f,output,context);
+        return copy_otf(emb->font->sfnt,output,context);
       }
     } else if (emb->outtype==EMB_FMT_OTF) {
       if (emb->plan&EMB_A_CFF_TO_OTF) {
@@ -227,10 +233,8 @@ int emb_embed(EMB_PARAMS *emb,OUTPUT_FN output,void *context) // {{{
         assert(emb->font->sfnt);
         if (emb->plan&EMB_A_SUBSET) {
           return otf_subset_cff(emb->font->sfnt,emb->subset,output,context);
-        } else if (emb->plan&EMB_A_NO_VERBATIM) {
-          return otf_ttc_extract(emb->font->sfnt,output,context); // TODO: rename  TODO: no EMB_A_NO_VERBATIM, just one copy_sfnt function
         } else {
-          return copy_file(emb->font->sfnt->f,output,context);
+          return copy_otf(emb->font->sfnt,output,context);
         }
       }
     } else if (emb->outtype==EMB_FMT_CFF) {

@@ -140,14 +140,15 @@ struct _OTF_WRITE_INFO {
   int *order; // if special sorting is desired; NULL: sorted by tags
 };
 
-// will change otw!
+// will change otw!;  woff can be NULL
 int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context);
-
-int otf_write_woff(struct _OTF_WRITE_INFO *otw,const char *metaData,unsigned int metaLength,const char *privData,unsigned int privLength,OUTPUT_FN output,void *context);
 
 /** from sfnt_subset.c: **/
 
 // otw {0,}-terminated, will be modified; returns numTables for otf_write_sfnt
 int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE_TABLE *otw);
+
+int otf_copy_sfnt(OTF_FILE *otf,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context); // woff can be NULL
+int otf_subset2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context); // returns number of bytes written
 
 #endif

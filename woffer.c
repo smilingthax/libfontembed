@@ -4,13 +4,14 @@
 #include <string.h>
 #include <assert.h>
 #include "fontfile.h"
+#include "sfnt_int.h" // TODO...?
 
-// TODO:   ... subset code point parser
-BITSET parse_ranges(const char *str,int numGlyphs) // {{{
+// TODO:   ... subset code point parser  ... needs conversion from unicode to glyph
+BITSET parse_ranges(OTF_FILE *otf,const char *str) // {{{
 {
 fprintf(stderr,"Subsetting not implemented yet\n");
 return NULL;
-  BITSET ret=bitset_new(numGlyphs);
+  BITSET ret=bitset_new(otf->numGlyphs);
   // TODO
   return ret;
 }
@@ -82,35 +83,50 @@ int main(int argc,char **argv)
   }
 
   if (subsetstr) {
-    subset=parse_ranges(subsetstr,otf->numGlyphs);
+    subset=parse_ranges(otf,subsetstr);
   }
 
   FONTFILE *ff=fontfile_open_sfnt(otf);
   if (!ff) {
     fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
+    free(subset);
     return 2;
   }
 
   FILE *f=NULL;
+  struct _OTF_WRITE_WOFF woff={0,0},*woffptr=NULL; // version; no metaData, no privData
   if (woffout) {
     f=fopen(woffout,"wb");
+    woffptr=&woff;
   } else if (sfntout) {
     f=fopen(sfntout,"wb");
   } else {
     // NO-OP: no output file given
+    fprintf(stderr,"Nothing to do\n");
+    fontfile_close(ff);
+    free(subset);
     return 3;
   }
   if (!f) {
     fprintf(stderr,"Error: Could not open output fontfile\n");
     fontfile_close(ff);
+    free(subset);
     return 2;
   }
-//...const int res=otf_subset(otf,subset,file_outfn,f);
 
-// (,file_outfn,f);
+  int res;
+  if (subset) {
+    res=otf_subset2(otf,subset,woffptr,file_outfn,f);
+  } else {
+    res=otf_copy_sfnt(otf,woffptr,file_outfn,f);
+  }
 
   fclose(f);
   fontfile_close(ff);
+  free(subset);
 
+  if (res<0) {
+    return 4;
+  }
   return 0;
 }

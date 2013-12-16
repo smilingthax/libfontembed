@@ -7,11 +7,10 @@
 #include <assert.h>
 #include "bitset.h"
 
-int otf_ttc_extract(OTF_FILE *otf,OUTPUT_FN output,void *context) // {{{
+int otf_copy_sfnt(OTF_FILE *otf,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{
 {
   assert(otf);
   assert(output);
-  assert(otf->numTTC);
   int iA;
 
   struct _OTF_WRITE_INFO otw={
@@ -33,11 +32,19 @@ int otf_ttc_extract(OTF_FILE *otf,OUTPUT_FN output,void *context) // {{{
   }
   otw.order=otf_tagorder_offset_sort(otf);
 
-  const int ret=otf_write_sfnt(&otw,NULL,output,context);
+  const int ret=otf_write_sfnt(&otw,woff,output,context);
 
   free(otw.order);
   free(otw.tables);
   return ret;
+}
+// }}}
+
+// TODO: remove
+int otf_ttc_extract(OTF_FILE *otf,OUTPUT_FN output,void *context) // {{{
+{
+  assert(otf->numTTC);
+  return otf_copy_sfnt(otf,NULL,output,context);
 }
 // }}}
 
@@ -121,7 +128,7 @@ static int otf_subset_glyf(OTF_FILE *otf,int curgid,int donegid,BITSET glyphs) /
 // }}}
 
 // TODO: cmap only required in non-CID context
-int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
+int otf_subset2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
 {
   assert(otf);
   assert(glyphs);
@@ -231,6 +238,12 @@ int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{
 
   //TODO ? reduce cmap [to (1,0) ;-)]
   //TODO (cmap for non-cid)
+}
+// }}}
+
+int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
+{
+  return otf_subset2(otf,glyphs,NULL,output,context);
 }
 // }}}
 
