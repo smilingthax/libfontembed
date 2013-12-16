@@ -31,10 +31,13 @@ int otf_ttc_extract(OTF_FILE *otf,OUTPUT_FN output,void *context) // {{{
     otw.tables[iA].args.copy.otf=otf;
     otw.tables[iA].args.copy.table_no=iA;
   }
-  iA=otf_write_sfnt(&otw,NULL,output,context);
-  free(otw.tables);
+  otw.order=otf_tagorder_offset_sort(otf);
 
-  return iA;
+  const int ret=otf_write_sfnt(&otw,NULL,output,context);
+
+  free(otw.order);
+  free(otw.tables);
+  return ret;
 }
 // }}}
 
@@ -216,10 +219,12 @@ int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{
   struct _OTF_WRITE_INFO otw={
     .version=otf->version,
     .numTables=numTables,
-    .tables=tables
+    .tables=tables,
+    .order=otf_tagorder_win_sort(tables,numTables)
   };
-  int ret=otf_write_sfnt(&otw,NULL,output,context);
+  const int ret=otf_write_sfnt(&otw,NULL,output,context);
 
+  free(otw.order);
   free(new_loca);
   free(new_glyf);
   return ret;
@@ -255,14 +260,16 @@ int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) /
       {0,0,}};
 
   // and write them
-  int numTables=otf_intersect_tables(otf,tables);
+  const int numTables=otf_intersect_tables(otf,tables);
   struct _OTF_WRITE_INFO otw={
     .version=otf->version,
     .numTables=numTables,
-    .tables=tables
+    .tables=tables,
+    .order=otf_tagorder_win_sort(tables,numTables)
   };
-  int ret=otf_write_sfnt(&otw,NULL,output,context);
+  const int ret=otf_write_sfnt(&otw,NULL,output,context);
 
+  free(otw.order);
 //  free(new_cff);
   return ret;
 }

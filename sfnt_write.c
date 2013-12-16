@@ -86,11 +86,16 @@ static const struct { int prio; unsigned int tag; } otf_tagorder_win[]={ // {{{
   {10,OTF_TAG('p','r','e','p')}};
 // }}}
 
-void otf_tagorder_win_sort(const struct _OTF_WRITE_TABLE *tables,int *order,int numTables) // {{{
+int *otf_tagorder_win_sort(const struct _OTF_WRITE_TABLE *tables,int numTables) // {{{
 {
-  int priolist[NUM_PRIO]={0,};
+  int *order=malloc(sizeof(int)*numTables);
+  if (!order) {
+    fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
+    return NULL;
+  }
 
   // reverse intersection of both sorted arrays
+  int priolist[NUM_PRIO]={0,};
   int iA=numTables-1,iB=sizeof(otf_tagorder_win)/sizeof(otf_tagorder_win[0])-1;
   int ret=numTables-1;
   while ( (iA>=0)&&(iB>=0) ) {
@@ -107,15 +112,7 @@ void otf_tagorder_win_sort(const struct _OTF_WRITE_TABLE *tables,int *order,int 
       order[ret--]=priolist[iA]-1;
     }
   }
-}
-// }}}
-
-void otf_tagorder_tag_sort(const struct _OTF_WRITE_TABLE *tables,int *order,int numTables) // {{{
-{
-  int iA;
-  for (iA=0;iA<numTables;iA++) {
-    order[iA]=iA; // tables is already (must be) tag sorted
-  }
+  return order;
 }
 // }}}
 
@@ -137,8 +134,14 @@ static int otf_kv_compare(const void *a,const void *b) // {{{
 }
 // }}}
 
-void otf_tagorder_offset_sort(const OTF_FILE *otf,int *order) // {{{
+int *otf_tagorder_offset_sort(const OTF_FILE *otf) // {{{
 {
+  int *order=malloc(sizeof(int)*otf->numTables);
+  if (!order) {
+    fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
+    return NULL;
+  }
+
   int iA;
   struct _OTF_KV tmp[otf->numTables]; // or tmp=malloc(sizeof(struct _OTF_KV)*otf->numTables); assert(tmp);
   for (iA=0;iA<otf->numTables;iA++) {
@@ -149,6 +152,7 @@ void otf_tagorder_offset_sort(const OTF_FILE *otf,int *order) // {{{
   for (iA=0;iA<otf->numTables;iA++) {
     order[iA]=tmp[iA].value;
   }
+  return order;
 }
 // }}}
 
@@ -261,16 +265,7 @@ void otf_action_replace(struct _OTF_WRITE_TABLE *self) // {{{
 // }}}
 
 
-/*
-struct {
-  struct _OTF_WRITE_INFO otw;
-
-  const struct _OTF_WRITE_WOFF *woff;
-
-  OUTPUT_FN output;
-  void *context;
-
-// internal
+/* internal
   // sortingMode
 int *order; // ?? better as param   // but this allows sorting "beforehand"
 } OTF_WRITE_SFNT;
@@ -400,25 +395,26 @@ static int otf_write_woff_footer(struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,v
 }
 // }}}
 
+static inline struct _OTF_WRITE_TABLE *otwTableEntry(struct _OTF_WRITE_INFO *otw,int table_idx) // {{{
+{
+  if (otw->order) {
+    return &otw->tables[otw->order[table_idx]];
+  } else {
+    return &otw->tables[table_idx];
+  }
+}
+// }}}
+
 // will change otw!
 int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{
 {
   int iA;
   const int sfntStartSize=12+16*otw->numTables;
 
-  int *order=malloc(sizeof(int)*otw->numTables); // temporary
   char *sfntStart=malloc(sfntStartSize);
-  if ( (!order)||(!sfntStart) ) {
+  if (!sfntStart) {
     fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
-    free(order);
-    free(sfntStart);
     return -1;
-  }
-
-  if (1) { // sort tables
-    otf_tagorder_win_sort(otw->tables,order,otw->numTables);
-  } else {
-    otf_tagorder_tag_sort(otw->tables,order,otw->numTables);
   }
 
   // first pass: calculate table directory / offsets and checksums
@@ -426,10 +422,10 @@ int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTP
   int offset=sfntStartSize;
   int headAt=-1;
   for (iA=0;iA<otw->numTables;iA++) {
-    struct _OTF_WRITE_TABLE *self=&otw->tables[order[iA]];
+    struct _OTF_WRITE_TABLE *self=otwTableEntry(otw,iA);
 
     if (self->tag==OTF_TAG('h','e','a','d')) {
-      headAt=order[iA];
+      headAt=iA;
     }
 
     (*self->action)(self);
@@ -454,10 +450,9 @@ int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTP
 
   // fix head table checksum
   if (headAt!=-1) {
-    struct _OTF_WRITE_TABLE *self=&otw->tables[headAt];
+    struct _OTF_WRITE_TABLE *self=otwTableEntry(otw,headAt);
     if (action_load_data(self)!=0) {
-      ret=-1;
-      goto done;
+      return -1;
     }
     set_ULONG(self->info.data+8,0xb1b0afba-globalSum); // fix global checksum
     // TODO? >modify head time-stamp?
@@ -470,7 +465,7 @@ int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTP
 
     offset=woffStartSize;
     for (iA=0;iA<otw->numTables;iA++) {
-      struct _OTF_WRITE_TABLE *self=&otw->tables[order[iA]];
+      struct _OTF_WRITE_TABLE *self=otwTableEntry(otw,iA);
       if ( (action_load_data(self)!=0)||
            (action_hlp_compress(self)!=0) ) {
         ret=-1;
@@ -492,7 +487,7 @@ int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTP
 
   // second pass: write tables
   for (iA=0;iA<otw->numTables;iA++) {
-    struct _OTF_WRITE_TABLE *self=&otw->tables[order[iA]];
+    struct _OTF_WRITE_TABLE *self=otwTableEntry(otw,iA);
     if (action_load_data(self)!=0) {
       ret=-1;
       goto done;
@@ -520,7 +515,6 @@ done:
     free(woff->metaCompData);
     woff->metaCompData=NULL;
   }
-  free(order);
   return ret;
 }
 // }}}

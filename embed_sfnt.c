@@ -593,11 +593,11 @@ int emb_otf_ps(OTF_FILE *otf,unsigned short *encoding,int len,unsigned short *to
   //   otf_action_copy  does exactly one output call (per table)
   //   only otf_action_replace might do two (padding)
   // {{{ copy tables verbatim (does not affect ds .len)
-  struct _OTF_WRITE_TABLE *otwfree=NULL;
+  struct _OTF_WRITE_TABLE *tablesfree=NULL;
 #if 0
-  struct _OTF_WRITE_TABLE *otw;
-  otwfree=otw=malloc(sizeof(struct _OTF_WRITE_TABLE)*otf->numTables);
-  if (!otw) {
+  struct _OTF_WRITE_TABLE *tables;
+  tablesfree=tables=malloc(sizeof(struct _OTF_WRITE_TABLE)*otf->numTables);
+  if (!tables) {
     fprintf(stderr,"Bad alloc: %m\n");
     free(post);
     free(ds.buf);
@@ -605,14 +605,14 @@ int emb_otf_ps(OTF_FILE *otf,unsigned short *encoding,int len,unsigned short *to
   }
   // just copy everything
   for (iA=0;iA<otf->numTables;iA++) {
-    otw[iA].tag=otf->tables[iA].tag;
-    otw[iA].action=otf_action_copy;
-    otw[iA].args.copy.otf=otf;
-    otw[iA].args.copy.table_no=iA;
+    tables[iA].tag=otf->tables[iA].tag;
+    tables[iA].action=otf_action_copy;
+    tables[iA].args.copy.otf=otf;
+    tables[iA].args.copy.table_no=iA;
   }
-  int numTables=otf->numTables;
+  const int numTables=otf->numTables;
 #else
-  struct _OTF_WRITE_TABLE otw[]={ // sorted
+  struct _OTF_WRITE_TABLE tables[]={ // sorted
       {OTF_TAG('c','m','a','p'),otf_action_copy,.args.copy={otf,}},
       {OTF_TAG('c','v','t',' '),otf_action_copy,.args.copy={otf,}},
       {OTF_TAG('f','p','g','m'),otf_action_copy,.args.copy={otf,}},
@@ -626,24 +626,25 @@ int emb_otf_ps(OTF_FILE *otf,unsigned short *encoding,int len,unsigned short *to
       {OTF_TAG('p','r','e','p'),otf_action_copy,.args.copy={otf,}},
       // vhea vmtx (never used in PDF, but possible in PS>=3011)
       {0,0,}};
-  int numTables=otf_intersect_tables(otf,otw);
+  const int numTables=otf_intersect_tables(otf,tables);
 #endif
 
   struct OUTFILTER_PS of;
   of.out=output;
   of.ctx=context;
   of.len=0;
-  struct _OTF_WRITE_INFO otwinfo={
+  struct _OTF_WRITE_INFO otw={
     .version=otf->version,
     .numTables=numTables,
-    .tables=otw
+    .tables=tables,
+    .order=otf_tagorder_win_sort(tables,numTables)
   };
   if (binary) {
-    iA=otf_write_sfnt(&otwinfo,NULL,outfilter_binary_ps,&of);
+    iA=otf_write_sfnt(&otw,NULL,outfilter_binary_ps,&of);
   } else {
-    iA=otf_write_sfnt(&otwinfo,NULL,outfilter_ascii_ps,&of);
+    iA=otf_write_sfnt(&otw,NULL,outfilter_ascii_ps,&of);
   }
-  free(otwfree);
+  free(tablesfree);
   if (iA==-1) {
     free(post);
     free(ds.buf);

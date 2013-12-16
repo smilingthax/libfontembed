@@ -118,12 +118,6 @@ struct _OTF_WRITE_TABLE {
 void otf_action_copy(struct _OTF_WRITE_TABLE *self);
 void otf_action_replace(struct _OTF_WRITE_TABLE *self);
 
-struct _OTF_WRITE_INFO {
-  unsigned int version;
-  unsigned short numTables;
-  struct _OTF_WRITE_TABLE *tables;
-};
-
 struct _OTF_WRITE_WOFF {
   unsigned short majorVersion,minorVersion;
 
@@ -134,6 +128,16 @@ struct _OTF_WRITE_WOFF {
 
   // private
   char *metaCompData;
+};
+
+int *otf_tagorder_win_sort(const struct _OTF_WRITE_TABLE *tables,int numTables);
+int *otf_tagorder_offset_sort(const OTF_FILE *otf);
+
+struct _OTF_WRITE_INFO {
+  unsigned int version;
+  unsigned short numTables;
+  struct _OTF_WRITE_TABLE *tables;
+  int *order; // if special sorting is desired; NULL: sorted by tags
 };
 
 // will change otw!
