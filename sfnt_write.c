@@ -107,6 +107,9 @@ int *otf_tagorder_win_sort(const struct _OTF_WRITE_TABLE *tables,int numTables) 
       iB--;
     }
   }
+  while (iA>=0) {
+    order[ret--]=iA--;
+  }
   for (iA=NUM_PRIO-1;iA>=0;iA--) { // pick the matched tables up in sorted order (bucketsort principle)
     if (priolist[iA]) {
       order[ret--]=priolist[iA]-1;
