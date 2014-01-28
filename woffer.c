@@ -216,9 +216,9 @@ int main(int argc,char **argv)
   if (subset) {
     if (is_CFF(otf)) {
       fprintf(stderr,"Note: Glyph subsetting not implemented yet for CFF-type files\n");
-      res=otf_subset_cff2(otf,subset,woffptr,file_outfn,f);
+      res=otf_subset_cff2(otf,subset,SUBSET_DST_BROWSER,woffptr,file_outfn,f);
     } else {
-      res=otf_subset2(otf,subset,woffptr,file_outfn,f);
+      res=otf_subset2(otf,subset,SUBSET_DST_BROWSER,woffptr,file_outfn,f);
     }
   } else {
     res=otf_copy_sfnt(otf,woffptr,file_outfn,f);

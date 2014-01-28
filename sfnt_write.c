@@ -425,6 +425,7 @@ int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTP
       headAt=iA;
     }
 
+    assert(self->action); // must already be filtered out by otf_intersect_tables
     (*self->action)(self);
     self->info.table.offset=offset;
 

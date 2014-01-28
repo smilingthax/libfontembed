@@ -145,11 +145,15 @@ int otf_write_sfnt(struct _OTF_WRITE_INFO *otw,struct _OTF_WRITE_WOFF *woff,OUTP
 
 /** from sfnt_subset.c: **/
 
+typedef enum { SUBSET_DST_PDF,
+               SUBSET_DST_BROWSER
+               } SUBSET_DESTINATION;
+
 // otw {0,}-terminated, will be modified; returns numTables for otf_write_sfnt
 int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE_TABLE *otw);
 
 int otf_copy_sfnt(OTF_FILE *otf,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context); // woff can be NULL
-int otf_subset2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context); // returns number of bytes written
-int otf_subset_cff2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context);
+int otf_subset2(OTF_FILE *otf,BITSET glyphs,SUBSET_DESTINATION dest,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context); // returns number of bytes written
+int otf_subset_cff2(OTF_FILE *otf,BITSET glyphs,SUBSET_DESTINATION dest,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context);
 
 #endif

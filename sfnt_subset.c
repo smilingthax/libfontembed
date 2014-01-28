@@ -49,24 +49,27 @@ int otf_ttc_extract(OTF_FILE *otf,OUTPUT_FN output,void *context) // {{{
 // }}}
 
 // otw {0,}-terminated, will be modified; returns numTables for otf_write_sfnt
+// also filters out (.action==NULL) entries and populates .copy.table_no
 int otf_intersect_tables(OTF_FILE *otf,struct _OTF_WRITE_TABLE *tables) // {{{
 {
   int iA,iB,numTables=0;
   for (iA=0,iB=0;(iA<otf->numTables)&&(tables[iB].tag);) {
     if (otf->tables[iA].tag==tables[iB].tag) {
-      if (tables[iB].action==otf_action_copy) {
-        tables[iB].copy.table_no=iA; // original table location found.
-      }
-      if (iB!=numTables) { // >, actually
-        memmove(tables+numTables,tables+iB,sizeof(struct _OTF_WRITE_TABLE));
-      }
+      if (tables[iB].action) {
+        if (tables[iB].action==otf_action_copy) {
+          tables[iB].copy.table_no=iA; // original table location found.
+        }
+        if (iB!=numTables) { // >, actually
+          memmove(tables+numTables,tables+iB,sizeof(struct _OTF_WRITE_TABLE));
+        }
+        numTables++;
+      } // else skip
       iA++;
       iB++;
-      numTables++;
     } else if (otf->tables[iA].tag<tables[iB].tag) {
       iA++;
     } else { // not in otf->tables
-      if (tables[iB].action!=otf_action_copy) { // keep
+      if ( (tables[iB].action)&&(tables[iB].action!=otf_action_copy) ) { // keep
         if (iB!=numTables) { // >, actually
           memmove(tables+numTables,tables+iB,sizeof(struct _OTF_WRITE_TABLE));
         }
@@ -128,7 +131,7 @@ static int otf_subset_glyf(OTF_FILE *otf,int curgid,int donegid,BITSET glyphs) /
 // }}}
 
 // TODO: cmap only required in non-CID context
-int otf_subset2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
+int otf_subset2(OTF_FILE *otf,BITSET glyphs,SUBSET_DESTINATION dest,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
 {
   assert(otf);
   assert(glyphs);
@@ -207,19 +210,26 @@ int otf_subset2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_
   // determine new tables.
   struct _OTF_WRITE_TABLE tables[]={ // sorted
     // TODO: cmap only required in non-CID context   or always in CFF
+      {OTF_TAG('O','S','/','2'),NULL,.copy={otf,}}, // 0
       {OTF_TAG('c','m','a','p'),otf_action_copy,.copy={otf,}},
       {OTF_TAG('c','v','t',' '),otf_action_copy,.copy={otf,}},
       {OTF_TAG('f','p','g','m'),otf_action_copy,.copy={otf,}},
       {OTF_TAG('g','l','y','f'),otf_action_replace,.replace={new_glyf,glyfSize}},
-      {OTF_TAG('h','e','a','d'),otf_action_copy,.copy={otf,}}, // _copy_head
+      {OTF_TAG('h','e','a','d'),otf_action_copy,.copy={otf,}}, // 5 // _copy_head
       {OTF_TAG('h','h','e','a'),otf_action_copy,.copy={otf,}},
       {OTF_TAG('h','m','t','x'),otf_action_copy,.copy={otf,}},
       {OTF_TAG('l','o','c','a'),otf_action_replace,.replace={new_loca,locaSize}},
       {OTF_TAG('m','a','x','p'),otf_action_copy,.copy={otf,}},
-      {OTF_TAG('n','a','m','e'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('n','a','m','e'),otf_action_copy,.copy={otf,}}, // 10
+      {OTF_TAG('p','o','s','t'),NULL,.copy={otf,}},
       {OTF_TAG('p','r','e','p'),otf_action_copy,.copy={otf,}},
       // vhea vmtx (never used in PDF, but possible in PS>=3011)
       {0,0,}};
+  if (dest==SUBSET_DST_BROWSER) {
+    // esp. chrome:
+    tables[0].action=otf_action_copy; // OS/2
+    tables[11].action=otf_action_copy; // post
+  }
 
   // and write them
   int numTables=otf_intersect_tables(otf,tables);
@@ -243,12 +253,13 @@ int otf_subset2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_
 
 int otf_subset(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
 {
-  return otf_subset2(otf,glyphs,NULL,output,context);
+  return otf_subset2(otf,glyphs,SUBSET_DST_PDF,NULL,output,context);
 }
 // }}}
 
 // TODO no subsetting actually done (for now)
-int otf_subset_cff2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
+  // TODO? which tables can be  recreated from the CFF infos?
+int otf_subset_cff2(OTF_FILE *otf,BITSET glyphs,SUBSET_DESTINATION dest,struct _OTF_WRITE_WOFF *woff,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
 {
   assert(otf);
   assert(output);
@@ -257,20 +268,32 @@ int otf_subset_cff2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUT
 
   // determine new tables.
   struct _OTF_WRITE_TABLE tables[]={
-      {OTF_TAG('C','F','F',' '),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('C','F','F',' '),otf_action_copy,.copy={otf,}}, // 0
 //      {OTF_TAG('C','F','F',' '),otf_action_replace,.replace={new_glyf,glyfSize}},
+// also needed for (e.g.) chrome:
+      {OTF_TAG('O','S','/','2'),NULL,.copy={otf,}},
       {OTF_TAG('c','m','a','p'),otf_action_copy,.copy={otf,}},
-#if 0 // not actually needed!
-      {OTF_TAG('c','v','t',' '),otf_action_copy,.copy={otf,}},
-      {OTF_TAG('f','p','g','m'),otf_action_copy,.copy={otf,}},
-      {OTF_TAG('h','e','a','d'),otf_action_copy,.copy={otf,}}, // _copy_head
+
+      // not actually needed in pdf:
+      {OTF_TAG('h','e','a','d'),otf_action_copy,.copy={otf,}},
       {OTF_TAG('h','h','e','a'),otf_action_copy,.copy={otf,}},
-      {OTF_TAG('h','m','t','x'),otf_action_copy,.copy={otf,}},
+      {OTF_TAG('h','m','t','x'),otf_action_copy,.copy={otf,}}, // 5
       {OTF_TAG('m','a','x','p'),otf_action_copy,.copy={otf,}},
       {OTF_TAG('n','a','m','e'),otf_action_copy,.copy={otf,}},
-      {OTF_TAG('p','r','e','p'),otf_action_copy,.copy={otf,}},
-#endif
+
+      {OTF_TAG('p','o','s','t'),NULL,.copy={otf,}},
       {0,0,}};
+  if (dest==SUBSET_DST_BROWSER) {
+    // e.g. chrome:
+    tables[1].action=otf_action_copy; // OS/2
+    tables[8].action=otf_action_copy; // post
+  } else {
+    tables[3].action=NULL; // head
+    tables[4].action=NULL;
+    tables[5].action=NULL;
+    tables[6].action=NULL;
+    tables[7].action=NULL; // name
+  }
 
   // and write them
   const int numTables=otf_intersect_tables(otf,tables);
@@ -290,7 +313,7 @@ int otf_subset_cff2(OTF_FILE *otf,BITSET glyphs,struct _OTF_WRITE_WOFF *woff,OUT
 
 int otf_subset_cff(OTF_FILE *otf,BITSET glyphs,OUTPUT_FN output,void *context) // {{{ - returns number of bytes written
 {
-  return otf_subset_cff2(otf,glyphs,NULL,output,context);
+  return otf_subset_cff2(otf,glyphs,SUBSET_DST_PDF,NULL,output,context);
 }
 // }}}
 
