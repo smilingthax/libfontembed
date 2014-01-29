@@ -1,6 +1,6 @@
-SOURCES=main.c sfnt.c sfnt_subset.c sfnt_write.c embed.c embed_sfnt.c embed_pdf.c test_analyse.c dynstring.c test_pdf.c fontfile.c aglfn13.c frequent.c font_get.c woffer.c
-LIBOBJ=sfnt.o sfnt_subset.o sfnt_write.o embed.o embed_sfnt.o embed_pdf.o dynstring.o fontfile.o aglfn13.o frequent.o
-EXEC=ttfread test_analyze test_pdf test_ps font_get woffer
+SOURCES=main.c sfnt.c sfnt_subset.c sfnt_write.c embed.c embed_sfnt.c embed_pdf.c test_analyse.c dynstring.c test_pdf.c fontfile.c aglfn13.c frequent.c font_get.c woffer.c cff.c cff_tables.c
+LIBOBJ=sfnt.o sfnt_subset.o sfnt_write.o embed.o embed_sfnt.o embed_pdf.o dynstring.o fontfile.o aglfn13.o frequent.o cff.o cff_tables.o
+EXEC=ttfread test_analyze test_pdf test_ps font_get woffer test_cff
 LIB=libfontembed.a
 
 CFLAGS=-O3 -funroll-all-loops -finline-functions -Wall -g
@@ -55,5 +55,8 @@ font_get: font_get.o $(LIB)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 woffer: woffer.o $(LIB)
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
+test_cff: test_cff.o $(LIB)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
