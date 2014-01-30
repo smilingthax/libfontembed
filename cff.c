@@ -2,15 +2,21 @@
 #include "cff_int.h"
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+
+// NOTE: only support Type 2 charstrings for now
+
+// TODO cff_read_dict
+  // TODO:   add ,maxlen to read_integer(?), read_real and read_dict_token   ... write_?
+  // cff_dict_get(dict,key...)
+
+  // TODO? cff_write_dict,  cff_add_to_dict(?)
 
 //   DICT:  only two, privateDict and topDict.
-//  Key: 1-2 byte  Value: encoded  (post-order notation)
 
 //  - get_from_dict(dict*,operator data structure)  // has to return default, if not there. TODO?! check/assert if op is valid for this dict?
 
 //  ? cff_index_realloc(count)  cff_index_add_data(size?) [? only for r/w data]
-
-// TODO: special handling of string index / sid
 
 #include <math.h>
 double cff_read_real(const char **buf) // {{{   NAN on error
@@ -148,26 +154,43 @@ int32_t cff_read_integer(const char **buf) // {{{
 }
 // }}}
 
-  // reads key(operator)/value from dict
-// TODO FIXME  return type??
-void cff_read_number(const char **buf) // {{{
+#include "cff_tables.h"
+
+// error: .type==CFF_VAL_ERROR
+struct _CFF_VALUE cff_read_dict_token(const char **buf) // {{{
 {
-uint8_t opvalue;
-int32_t value;
-double realvalue;
+  struct _CFF_VALUE ret;
   const char *b=*buf;
   const unsigned char b0=*b;
-  if (b0<22) { // operator, size 1
-    opvalue=b0;
+  if (b0<22) { // operator, size 1 or size 2
+    int opvalue=b0;
     (*buf)++;
+    if (opvalue==12) {
+      opvalue=(opvalue<<8)|((unsigned char)b[1]);
+      (*buf)++;
+    }
+    ret.op=cffop_get_by_value(opvalue);
+    if (!ret.op) {
+      ret.type=CFF_VAL_ERROR;
+    } else {
+      ret.type=CFF_VAL_OP;
+    }
   } else if (b0==30) { // real, varsize
     (*buf)++;
-    realvalue=cff_read_real(buf);
+    ret.real=cff_read_real(buf);
+    if (isnan(ret.real)) {
+      ret.type=CFF_VAL_ERROR;
+    } else {
+      ret.type=CFF_VAL_REAL;
+    }
   } else if ( (b0>=28)&&(b0!=31)&&(b0<=254) ) {
-    value=cff_read_integer(buf);
+    ret.type=CFF_VAL_INT;
+    ret.number=cff_read_integer(buf);
   } else { // 22-27,31,255 reserved
-    assert(0);  // TODO: return error somehow (realvalue=NAN??)
+    assert(0);
+    ret.type=CFF_VAL_ERROR;
   }
+  return ret;
 }
 // }}}
 
@@ -203,24 +226,77 @@ void cff_write_integer(char **buf,int32_t value) // {{{
 }
 // }}}
 
-  // use opval=0xff  for value (for now)  FIXME
-void cff_write_number(char **buf,int32_t value,double realvalue,uint8_t opvalue) // {{{
+void cff_write_dict_token(char **buf,const struct _CFF_VALUE *value) // {{{
 {
-  if (opvalue<22) {
-    *((*buf)++)=opvalue;
-  } else if (opvalue==30) {
-    *((*buf)++)=opvalue;
-    cff_write_real(buf,realvalue);
-  } else if (opvalue==0xff) {
-    cff_write_integer(buf,value);
-  } else {
+  assert(value);
+  switch (value->type) {
+  case CFF_VAL_ERROR:
+  default:
     assert(0);
+    return;
+  case CFF_VAL_OP:
+    if (value->op->value>=0x0c00) {
+      *((*buf)++)=12;
+      *((*buf)++)=(value->op->value)&0xff;
+    } else {
+      *((*buf)++)=value->op->value;
+    }
+    break;
+  case CFF_VAL_INT:
+    cff_write_integer(buf,value->number);
+    break;
+  case CFF_VAL_REAL:
+    *((*buf)++)=30;
+    cff_write_real(buf,value->real);
+    break;
   }
 }
 // }}}
 
-#include "cff_tables.h"
+// TODO: length check
+// TODO: basic type check (SID must be int<65000, etc...)
+// TODO? verify dict type?
+// TODO: verify empty stack at the end (last token is an op)
+struct _CFF_DICT *cff_read_dict(const char *start,int length) // {{ {
+{
+  assert(start);
+  const char *end=start+length;
 
+  struct _CFF_DICT *ret=malloc(sizeof(struct _CFF_DICT)+20*sizeof(struct _CFF_VALUE));
+  if (!ret) {
+    fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
+    return NULL;
+  }
+  ret->alloc=20;
+  ret->len=0;
+  while (start<end) {
+    if (ret->len>=ret->alloc) {
+      ret->alloc+=20;
+      struct _CFF_DICT *tmp=realloc(ret,sizeof(struct _CFF_DICT)+ret->alloc*sizeof(struct _CFF_VALUE));
+      if (!tmp) {
+        fprintf(stderr,"Bad realloc: %s\n", strerror(errno));
+        free(ret);
+        return NULL;
+      }
+      ret=tmp;
+    }
+// FIXME:  length check
+    ret->data[ret->len]=cff_read_dict_token(&start);
+    if (ret->data[ret->len].type==CFF_VAL_ERROR) {
+      fprintf(stderr,"Bad DICT token\n");
+      free(ret);
+      return NULL;
+    }
+    ret->len++;
+  }
+  return ret;
+}
+// }} }
+
+  // Dict: (const char *dictStart,int length)
+  //   maybe load into better datastructure,  either a general ADT, or two specific ADTs, one for Top Dict and one for Private Dict
+  // general dict is easier (to populate)  ... but we're in plain C
+    // idea: just { int key(op value) [or even CFF_OPS *]; union { ...value... } }[]   and qsort AFTER populating it  -> still fast lookup
 const char *cff_get_topdict(/*???topdict[fontname]???,*/const char *key)
 {
   const struct CFF_OPS *res=cffop_get_by_name(key);
@@ -259,7 +335,7 @@ void cff_load()
 {
   // Name INDEX
 //  names=cff_read_INDEX;
-//  assert(names.count>=1);
+//  assert(names.count>=1);     // NOTE: .count==1  MUST for OTF
 //  ... *names[iA]==0 -> deleted
 
   // Top DICT INDEX
@@ -275,15 +351,38 @@ Encodings
 Charsets
 FDSelect  // only CIF
 CharString INDEX
-Font DICT INDEX // CID
+Font DICT INDEX // CID   (=per-font Private DICT)
 Private DICT
 Local Subr INDEX
 Copyright and Trademark
 
 */
 
+
+const char *cff_get_string(CFF_FILE *cff,int sid,int *retlen) // {{{  or NULL
+{
+  assert(cff);
+  assert( (sid>=0)&&(sid<=65000) );
+  if (sid<=390) {
+    const char *ret=cff_get_stdstr(sid);
+    if (retlen) {
+      *retlen=strlen(ret);
+    }
+    return ret;
+  }
+  sid-=391;
+  if (cff->stringIndex.count==0) {
+    return NULL;
+  }
+  assert(cff->stringIndex.offSize!=OFFERR);
+  if (retlen) {
+    *retlen=cff_index_length(&cff->stringIndex,sid);
+  }
+  return cff_index_get(&cff->stringIndex,sid);
+}
+// }}}
+
 /* --- */
-#include <errno.h>
 
 static void cff_index_free_data(struct CFF_Index *idx) // {{{
 {

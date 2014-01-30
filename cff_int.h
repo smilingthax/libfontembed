@@ -147,4 +147,29 @@ static inline int cff_index_length(struct CFF_Index *idx,int entry) // {{{
 }
 // }}}
 
+struct CFF_OPS; // from cff_tables.h
+struct _CFF_VALUE {
+  enum {
+    CFF_VAL_ERROR,
+    CFF_VAL_OP,
+    CFF_VAL_INT,
+    CFF_VAL_REAL
+  } type;
+  union {
+    const struct CFF_OPS *op;
+    int32_t number;
+    double real;
+  };
+};
+
+struct _CFF_DICT {
+  int len,alloc;
+  struct _CFF_VALUE data[];
+};
+
+// ?
+struct _CFF_DICT *cff_read_dict(const char *start,int length);
+
+const char *cff_get_string(CFF_FILE *cff,int sid,int *retlen); // or NULL
+
 #endif

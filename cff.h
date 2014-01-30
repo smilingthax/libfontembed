@@ -46,11 +46,11 @@ void cff_close(CFF_FILE *cff);
 double cff_read_real(const char **buf);
 int32_t cff_read_integer(const char **buf);
 
-// void??  cff_read_number(const char **buf);
+// struct _CFF_VALUE cff_read_dict_token(const char **buf);
 
 void cff_write_real(char **,double value);
 void cff_write_integer(char **,int32_t value);
 
-// void cff_write_number(char **buf,int32_t value,double realvalule,uint8_t opvalue);
+// void cff_write_dict_token(char **buf,const struct _CFF_VALUE *value);
 
 #endif

@@ -6,78 +6,78 @@
 #define CFF_OP(name,value,defval,flags) \
   {#name,value,defval,flags}
 
-#define CFF_TOPOP(name,value,defval) \
-  CFF_OP(name,value,defval,CFFOP_DICT_TOP)
+#define CFF_TOPOP(name,value,type,defval) \
+  CFF_OP(name,value,defval,CFFOP_DICT_TOP|CFFOP_TYPE_##type)
 
-#define CFF_TOPFIOP(name,value,defval) \
-  CFF_OP(name,value,defval,CFFOP_DICT_FONTINFO)
+#define CFF_TOPFIOP(name,value,type,defval) \
+  CFF_OP(name,value,defval,CFFOP_DICT_FONTINFO|CFFOP_TYPE_##type)
 
-#define CFF_PRIVOP(name,value,defval) \
-  CFF_OP(name,value,defval,CFFOP_DICT_PRIV)
+#define CFF_PRIVOP(name,value,type,defval) \
+  CFF_OP(name,value,defval,CFFOP_DICT_PRIV|CFFOP_TYPE_##type)
 
 // values 0..21
 static const struct CFF_OPS cff_ops1[]={
-  CFF_TOPFIOP(version,0,NULL),
-  CFF_TOPFIOP(Notice,1,NULL),
-  CFF_TOPFIOP(FullName,2,NULL),
-  CFF_TOPFIOP(FamilyName,3,NULL),
-  CFF_TOPFIOP(Weight,4,NULL),
-  CFF_TOPOP(FontBBox,5,"\x8b\x8b\x8b\x8b"), // 0 0 0 0
-  CFF_PRIVOP(BlueValues,6,NULL),
-  CFF_PRIVOP(OtherBlues,7,NULL),
-  CFF_PRIVOP(FamilyBlues,8,NULL),
-  CFF_PRIVOP(FamilyOtherBlues,9,NULL),
-  CFF_PRIVOP(StdHW,10,NULL),
-  CFF_PRIVOP(StdVW,11,NULL),
+  CFF_TOPFIOP(version,0,SID,NULL),
+  CFF_TOPFIOP(Notice,1,SID,NULL),
+  CFF_TOPFIOP(FullName,2,SID,NULL),
+  CFF_TOPFIOP(FamilyName,3,SID,NULL),
+  CFF_TOPFIOP(Weight,4,SID,NULL),
+  CFF_TOPOP(FontBBox,5,ARRAY,"\x8b\x8b\x8b\x8b"), // 0 0 0 0
+  CFF_PRIVOP(BlueValues,6,DELTA,NULL),
+  CFF_PRIVOP(OtherBlues,7,DELTA,NULL),
+  CFF_PRIVOP(FamilyBlues,8,DELTA,NULL),
+  CFF_PRIVOP(FamilyOtherBlues,9,DELTA,NULL),
+  CFF_PRIVOP(StdHW,10,NUMBER,NULL),
+  CFF_PRIVOP(StdVW,11,NUMBER,NULL),
   {NULL}, // 12 is escape
-  CFF_TOPOP(UniqueID,13,NULL),
-  CFF_TOPOP(XUID,14,NULL),
-  CFF_TOPOP(charset,15,"\x8b"),
-  CFF_TOPOP(Encoding,16,"\x8b"),
-  CFF_TOPOP(CharStrings,17,NULL),
-  CFF_TOPOP(Private,18,NULL),
-  CFF_PRIVOP(Subrs,19,NULL),
-  CFF_PRIVOP(defaultWidthX,20,"\x8b"),
-  CFF_PRIVOP(nominalWidthX,21,"\x8b")
+  CFF_TOPOP(UniqueID,13,NUMBER,NULL),
+  CFF_TOPOP(XUID,14,ARRAY,NULL),
+  CFF_TOPOP(charset,15,NUMBER,"\x8b"),
+  CFF_TOPOP(Encoding,16,NUMBER,"\x8b"),
+  CFF_TOPOP(CharStrings,17,NUMBER,NULL),
+  CFF_TOPOP(Private,18,NUMNUM,NULL),
+  CFF_PRIVOP(Subrs,19,NUMBER,NULL),
+  CFF_PRIVOP(defaultWidthX,20,NUMBER,"\x8b"),
+  CFF_PRIVOP(nominalWidthX,21,NUMBER,"\x8b")
 };
 
 // values 0x0c00..0x0c26
 static const struct CFF_OPS cff_ops2[]={
-  CFF_TOPFIOP(Copyright,0x0c00,NULL),
-  CFF_TOPFIOP(isFixedPitch,0x0c01,"\x8b"), // 0 (false)
-  CFF_TOPFIOP(ItalicAngle,0x0c02,"\x8b"),
-  CFF_TOPFIOP(UnderlinePosition,0x0c03,"\x27"), // -100
-  CFF_TOPFIOP(UnderlineThickness,0x0c04,"\xbd"), // 50
-  CFF_TOPOP(PaintType,0x0c05,"\x8b"),
-  CFF_TOPOP(CharstringType,0x0c06,"\x8d"), // 2
-  CFF_TOPOP(FontMatrix,0x0c07,"\x1e\x1c\x3f\x8d\x8d\x1e\x1c\x3f\x8d\x8d"), // 0.001 0 0 0.001 0 0
-  CFF_TOPOP(StrokeWidth,0x0c08,"\x8b"),
-  CFF_PRIVOP(BlueScale,0x0c09,"\x1e\xa0\x39\x62\x5f"), // 0.039625
-  CFF_PRIVOP(BlueShift,0x0c0a,"\x92"), // 7
-  CFF_PRIVOP(BlueFuzz,0x0c0b,"\x8c"), // 1
-  CFF_PRIVOP(StemSnapH,0x0c0c,NULL),
-  CFF_PRIVOP(StemSnapV,0x0c0d,NULL),
-  CFF_PRIVOP(ForceBold,0x0c0e,"\x8b"), // false
+  CFF_TOPFIOP(Copyright,0x0c00,SID,NULL),
+  CFF_TOPFIOP(isFixedPitch,0x0c01,BOOL,"\x8b"), // 0 (false)
+  CFF_TOPFIOP(ItalicAngle,0x0c02,NUMBER,"\x8b"),
+  CFF_TOPFIOP(UnderlinePosition,0x0c03,NUMBER,"\x27"), // -100
+  CFF_TOPFIOP(UnderlineThickness,0x0c04,NUMBER,"\xbd"), // 50
+  CFF_TOPOP(PaintType,0x0c05,NUMBER,"\x8b"),
+  CFF_TOPOP(CharstringType,0x0c06,NUMBER,"\x8d"), // 2
+  CFF_TOPOP(FontMatrix,0x0c07,ARRAY,"\x1e\x1c\x3f\x8d\x8d\x1e\x1c\x3f\x8d\x8d"), // 0.001 0 0 0.001 0 0
+  CFF_TOPOP(StrokeWidth,0x0c08,NUMBER,"\x8b"),
+  CFF_PRIVOP(BlueScale,0x0c09,NUMBER,"\x1e\xa0\x39\x62\x5f"), // 0.039625
+  CFF_PRIVOP(BlueShift,0x0c0a,NUMBER,"\x92"), // 7
+  CFF_PRIVOP(BlueFuzz,0x0c0b,NUMBER,"\x8c"), // 1
+  CFF_PRIVOP(StemSnapH,0x0c0c,DELTA,NULL),
+  CFF_PRIVOP(StemSnapV,0x0c0d,DELTA,NULL),
+  CFF_PRIVOP(ForceBold,0x0c0e,BOOL,"\x8b"),
   {NULL},{NULL},  // 0x0c0f, 0x0c10  reserved
-  CFF_PRIVOP(LanguageGroup,0x0c11,"\x8b"),
-  CFF_PRIVOP(ExpansionFactor,0x0c12,"\x1e\xa0\x6f"), // 0.06
-  CFF_PRIVOP(initialRandomSeed,0x0c13,"\x8b"),
-  CFF_TOPOP(SyntheticBase,0x0c14,NULL),
-  CFF_TOPOP(PostScript,0x0c15,NULL),
-  CFF_TOPOP(BaseFontName,0x0c16,NULL), // ...SID
-  CFF_TOPOP(BaseFontBlend,0x0c17,NULL),
+  CFF_PRIVOP(LanguageGroup,0x0c11,NUMBER,"\x8b"),
+  CFF_PRIVOP(ExpansionFactor,0x0c12,NUMBER,"\x1e\xa0\x6f"), // 0.06
+  CFF_PRIVOP(initialRandomSeed,0x0c13,NUMBER,"\x8b"),
+  CFF_TOPOP(SyntheticBase,0x0c14,NUMBER,NULL),
+  CFF_TOPOP(PostScript,0x0c15,SID,NULL),
+  CFF_TOPOP(BaseFontName,0x0c16,SID,NULL),
+  CFF_TOPOP(BaseFontBlend,0x0c17,DELTA,NULL),
   {NULL},{NULL},{NULL},{NULL},{NULL},{NULL}, // 0x0c18..0x0c1d  reserved
 
   // CID
-  CFF_TOPOP(ROS,0x0c1e,NULL),
-  CFF_TOPOP(CIDFontVersion,0x0c1f,"\x8b"),
-  CFF_TOPOP(CIDFontRevision,0x0c20,"\x8b"),
-  CFF_TOPOP(CIDFontType,0x0c21,"\x8b"),
-  CFF_TOPOP(CIDCount,0x0c22,"\x1c\x22\x11"), // 8720
-  CFF_TOPOP(UIDBase,0x0c23,NULL),
-  CFF_TOPOP(FDArray,0x0c24,NULL),
-  CFF_TOPOP(FDSelect,0x0c25,NULL),
-  CFF_TOPOP(FontName,0x0c26,NULL)
+  CFF_TOPOP(ROS,0x0c1e,SIDSIDNUM,NULL),
+  CFF_TOPOP(CIDFontVersion,0x0c1f,NUMBER,"\x8b"),
+  CFF_TOPOP(CIDFontRevision,0x0c20,NUMBER,"\x8b"),
+  CFF_TOPOP(CIDFontType,0x0c21,NUMBER,"\x8b"),
+  CFF_TOPOP(CIDCount,0x0c22,NUMBER,"\x1c\x22\x11"), // 8720
+  CFF_TOPOP(UIDBase,0x0c23,NUMBER,NULL),
+  CFF_TOPOP(FDArray,0x0c24,NUMBER,NULL),
+  CFF_TOPOP(FDSelect,0x0c25,NUMBER,NULL),
+  CFF_TOPOP(FontName,0x0c26,SID,NULL)
 };
 
 // sorted by name
