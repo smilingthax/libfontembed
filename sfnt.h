@@ -56,6 +56,7 @@ typedef struct {
 
 // to load TTC collections: append e.g. "/3" for the third font in the file.
 OTF_FILE *otf_load(const char *file);
+OTF_FILE *otf_load2(FILE *f,int use_ttc/*=-1*/); // takes f
 void otf_close(OTF_FILE *otf);
 
 #define OTF_TAG(a,b,c,d)  (unsigned int)( ((a)<<24)|((b)<<16)|((c)<<8)|(d) )

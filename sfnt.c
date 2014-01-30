@@ -396,35 +396,9 @@ static int otf_do_load(OTF_FILE *otf,int pos) // {{{
 }
 // }}}
 
-OTF_FILE *otf_load(const char *file) // {{{
+OTF_FILE *otf_load2(FILE *f,int use_ttc) // {{{  takes f
 {
-  FILE *f;
-  OTF_FILE *otf;
-
-  int use_ttc=-1;
-  if ((f=fopen(file,"rb"))==NULL) {
-    // check for TTC
-    char *tmp=strrchr(file,'/'),*end;
-    if (tmp) {
-      use_ttc=strtoul(tmp+1,&end,10);
-      if (!*end) {
-        end=malloc((tmp-file+1)*sizeof(char));
-        if (!end) {
-          fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
-          return NULL;
-        }
-        strncpy(end,file,tmp-file);
-        end[tmp-file]=0;
-        f=fopen(end,"rb");
-        free(end);
-      }
-    }
-    if (!f) {
-      fprintf(stderr,"Could not open \"%s\": %s\n", file, strerror(errno));
-      return NULL;
-    }
-  }
-  otf=otf_new(f);
+  OTF_FILE *otf=otf_new(f);
   if (!otf) {
     fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
     fclose(f);
@@ -457,6 +431,37 @@ OTF_FILE *otf_load(const char *file) // {{{
     return NULL;
   }
   return otf;
+}
+// }}}
+
+OTF_FILE *otf_load(const char *file) // {{{
+{
+  FILE *f;
+  int use_ttc=-1;
+
+  if ((f=fopen(file,"rb"))==NULL) {
+    // check for TTC
+    char *tmp=strrchr(file,'/'),*end;
+    if (tmp) {
+      use_ttc=strtoul(tmp+1,&end,10);
+      if (!*end) {
+        end=malloc((tmp-file+1)*sizeof(char));
+        if (!end) {
+          fprintf(stderr,"Bad alloc: %s\n", strerror(errno));
+          return NULL;
+        }
+        strncpy(end,file,tmp-file);
+        end[tmp-file]=0;
+        f=fopen(end,"rb");
+        free(end);
+      }
+    }
+    if (!f) {
+      fprintf(stderr,"Could not open \"%s\": %s\n", file, strerror(errno));
+      return NULL;
+    }
+  }
+  return otf_load2(f,use_ttc);
 }
 // }}}
 
