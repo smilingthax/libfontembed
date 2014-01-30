@@ -2,16 +2,19 @@ libfontembed - font embedding and subsetting library
 ----------------------------------------------------
 
 This library implements all the stuff required to
-embed and subset TrueType fonts, as for example 
+embed and subset TrueType fonts, as for example
 required in PDF files. It is completely self-contained,
 although a FreeType binding might come sometime in the future.
 
 Currently glyf-flavored TrueType is fully supported,
-for OTF, i.e. CFF-flavored TrueType/OpenType, subsetting is not
-done; but embedding does work.
+but for OTF, i.e. CFF-flavored TrueType/OpenType, subsetting is
+not done; embedding does work.
 And single-byte mode does needs work/thought wrt. to encodings.
 Also reencoding and conversion of Type1 to CFF is planned.
 PostScript embedding is another goal of the project.
+
+Additionally, wOFF-support can be compiled in and
+better CFF support being worked on.
 
 The most important issue that needs fixing is support for
 text extraction in the PDF multibyte case (most common),
@@ -26,7 +29,7 @@ Usage
 
 License (MIT)
 -------------
-Copyright (c) 2008,2012 by Tobias Hoffmann.
+Copyright (c) 2008,2012-2014 by Tobias Hoffmann.
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
