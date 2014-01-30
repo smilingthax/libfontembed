@@ -38,7 +38,7 @@ typedef struct {
 #define CFF_F_FREE_DATA 0x0001
 
 CFF_FILE *cff_load2(const char *buf,size_t len,int take);
-CFF_FILE *cff_load_file(FILE *f);
+CFF_FILE *cff_load_file(FILE *f); // f can be closed then
 CFF_FILE *cff_load_filename(const char *filename);
 void cff_close(CFF_FILE *cff);
 

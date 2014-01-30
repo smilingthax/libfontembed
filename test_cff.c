@@ -1,6 +1,7 @@
 #include <assert.h>
 #include "cff.h"
 #include "cff_int.h"
+#include "sfnt.h"
 
 #include "cff_tables.h"
 
@@ -52,6 +53,8 @@ void test_real(double v) // {{{
   printf("%g\n",res);
 }
 // }}}
+
+// TODO? void dump_header(CFF_FILE *cff)  major/minor/(hdrSize)/(abs)offSize
 
 // sorted
   // TODO? special case:  name[0]=NUL
@@ -180,6 +183,26 @@ void dump_dict(CFF_FILE *cff,struct _CFF_DICT *dict) // {{{
 }
 // }}}
 
+ // TODO? into sfnt.c ?
+#include <string.h>
+int is_sfnt_cff(FILE *f) // {{{
+{
+  char buf[8];
+  const int res=fread(buf,1,8,f);
+  rewind(f); // esp. for cff_load
+
+  if (res<8) {
+    return 0;
+  }
+  if (memcmp(buf,"OTTO",4)==0) {
+    return 1;
+  } else if (memcmp(buf,"wOFFOTTO",8)==0) {
+    return 1;
+  }
+  return 0;
+}
+// }}}
+
 int main(int argc,char **argv)
 {
   FILE *f;
@@ -194,10 +217,22 @@ int main(int argc,char **argv)
     return 1;
   }
 
-  CFF_FILE *cff=cff_load_file(f);
-  assert(cff);
+  CFF_FILE *cff;
+  if (is_sfnt_cff(f)) {
+    OTF_FILE *otf=otf_load2(f,-1);
+    assert(otf);
 
-  fclose(f);
+    int len;
+    char *buf=otf_get_table(otf,OTF_TAG('C','F','F',' '),&len);
+    otf_close(otf);
+    assert(buf);
+
+    cff=cff_load2(buf,len,1);
+  } else {
+    cff=cff_load_file(f);
+    fclose(f);
+  }
+  assert(cff);
 
   dump_name_index(cff);
 //  dump_string_index(cff);
