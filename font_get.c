@@ -27,7 +27,16 @@ static void list_tables(OTF_FILE *otf) // {{{
 
   int iA;
   for (iA=0;iA<otf->numTables;iA++) {
-    printf("  %c%c%c%c %d @%d\n",OTF_UNTAG(otf->tables[iA].tag),otf->tables[iA].length,otf->tables[iA].offset);
+    if (otf->flags&OTF_F_WOFF) {
+      printf("  %c%c%c%c %6d(%6d) @%6d\n",
+             OTF_UNTAG(otf->tables[iA].tag),
+             otf->tables[iA].length,otf->tables[iA].compLength,
+             otf->tables[iA].offset);
+    } else {
+      printf("  %c%c%c%c %6d @%6d\n",
+             OTF_UNTAG(otf->tables[iA].tag),
+             otf->tables[iA].length,otf->tables[iA].offset);
+    }
   }
 }
 // }}}
