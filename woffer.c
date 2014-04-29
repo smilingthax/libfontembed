@@ -180,6 +180,7 @@ int main(int argc,char **argv)
   if (subsetstr) {
     subset=parse_ranges(otf,subsetstr);
     if (!subset) {
+      fprintf(stderr,"Error: Bad subset range\n");
       return 2;
     }
   }
