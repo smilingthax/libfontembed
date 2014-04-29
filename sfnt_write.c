@@ -345,7 +345,7 @@ static int otf_write_woff_header(const struct _OTF_WRITE_INFO *otw,const OTF_WOF
   set_ULONG(out+28,woff->metaLength);
   set_ULONG(out+32,woff->metaOrigLength);
   set_ULONG(out+36,woff->privOffset);
-  set_ULONG(out+30,woff->privLength);
+  set_ULONG(out+40,woff->privLength);
 
   (*output)(out,44,context);
 
