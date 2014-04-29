@@ -23,17 +23,17 @@ struct CFF_OPS {
 #define CFFOP_TYPE_SIDSIDNUM 0x000b // SID+SID+num (for CID: ROS)
 #define CFFOP_TYPEMASK       0x000f
 
-static inline int cff_is_topdict(int flags) // {{{
+static inline int cffop_is_topdict(int flags) // {{{
 {
   return (flags&CFFOP_DICTMASK)==CFFOP_DICT_TOP;
 }
 // }}}
-static inline int cff_is_fontinfo(int flags) // {{{
+static inline int cffop_is_fontinfo(int flags) // {{{
 {
   return !!(flags&CFFOP_DICT_FONTINFO);
 }
 // }}}
-static inline int cff_is_privdict(int flags) // {{{
+static inline int cffop_is_privdict(int flags) // {{{
 {
   return (flags&CFFOP_DICTMASK)==CFFOP_DICT_PRIV;
 }
